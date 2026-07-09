@@ -1,0 +1,104 @@
+using Api.Data.Entities;
+using Microsoft.EntityFrameworkCore;
+
+namespace Api.Data;
+
+/// <summary>
+/// Seeds baseline reference data for local development: the Phase-1
+/// workflow_config rows and one local dev admin user. Run in Development
+/// at startup (see Program.cs).
+/// </summary>
+public static class DbInitializer
+{
+    public static async Task SeedAsync(CapacityDbContext db)
+    {
+        await SeedAdminUserAsync(db);
+        await SeedWorkflowConfigAsync(db);
+        await db.SaveChangesAsync();
+    }
+
+    private static async Task SeedAdminUserAsync(CapacityDbContext db)
+    {
+        var exists = await db.Users.AnyAsync(u => u.AdUsername == "admin");
+        if (exists)
+        {
+            return;
+        }
+
+        db.Users.Add(new User
+        {
+            AdUsername = "admin",
+            DisplayName = "Local Admin",
+            Role = UserRole.Admin,
+            Email = "admin@dev.local",
+            CreatedAt = DateTime.UtcNow,
+        });
+    }
+
+    private static async Task SeedWorkflowConfigAsync(CapacityDbContext db)
+    {
+        var exists = await db.WorkflowConfigs.AnyAsync();
+        if (exists)
+        {
+            return;
+        }
+
+        // Phase-1 flow only: draft -> submitted -> ai_evaluation ->
+        // ai_reviewed -> capacity_review -> infra_approval -> done.
+        // Stages 8-9 of the full 9-stage flow are Phase 2+ (see CLAUDE.md).
+        var rows = new[]
+        {
+            new WorkflowConfig
+            {
+                StageName = "draft",
+                SequenceOrder = 1,
+                AllowedTransitions = """["submitted"]""",
+                RequiredRole = null,
+            },
+            new WorkflowConfig
+            {
+                StageName = "submitted",
+                SequenceOrder = 2,
+                AllowedTransitions = """["ai_evaluation"]""",
+                RequiredRole = nameof(UserRole.Requestor),
+            },
+            new WorkflowConfig
+            {
+                StageName = "ai_evaluation",
+                SequenceOrder = 3,
+                AllowedTransitions = """["ai_reviewed"]""",
+                RequiredRole = null,
+            },
+            new WorkflowConfig
+            {
+                StageName = "ai_reviewed",
+                SequenceOrder = 4,
+                AllowedTransitions = """["capacity_review"]""",
+                RequiredRole = null,
+            },
+            new WorkflowConfig
+            {
+                StageName = "capacity_review",
+                SequenceOrder = 5,
+                AllowedTransitions = """["infra_approval", "rejected", "deferred"]""",
+                RequiredRole = nameof(UserRole.CapacityManager),
+            },
+            new WorkflowConfig
+            {
+                StageName = "infra_approval",
+                SequenceOrder = 6,
+                AllowedTransitions = """["done", "rejected", "deferred"]""",
+                RequiredRole = nameof(UserRole.InfraHead),
+            },
+            new WorkflowConfig
+            {
+                StageName = "done",
+                SequenceOrder = 7,
+                AllowedTransitions = "[]",
+                RequiredRole = null,
+            },
+        };
+
+        db.WorkflowConfigs.AddRange(rows);
+    }
+}

@@ -1,0 +1,19 @@
+/* Minimal global reset. Ant Design's ConfigProvider (see src/theme/theme.ts)
+   owns component theming/dark mode — this file just normalizes the page
+   box model and font stack. */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
