@@ -1,0 +1,32 @@
+# .NET
+bin/
+obj/
+*.user
+appsettings.Development.json
+appsettings.*.local.json
+
+# Node / React
+node_modules/
+dist/
+build/
+.vite/
+*.local
+
+# Secrets / env
+.env
+.env.*
+!.env.example
+
+# MySQL
+*.sql.gz
+*.dump
+
+# OS / editor
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
