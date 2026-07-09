@@ -65,6 +65,19 @@ Code regardless of usage/quota state. Everything else (CRUD boilerplate,
 DTOs, presentational components, test stubs, docs) is fair game to delegate
 — see the orchestration plan for the hand-off procedure.
 
+## Token usage — switch to OpenCode/Ollama proactively, not reactively
+
+Do not wait for a hard rate-limit error before delegating — by then a task
+is already cut off mid-way with nothing queued. Instead:
+- Delegate eligible tasks to OpenCode+Ollama **as soon as they're
+  identified as delegatable**, not held back as a pure emergency fallback.
+- Treat a context compaction, a low-usage indicator, or the user saying
+  usage is running low as the hand-off trigger — wrap up the current unit
+  of work, commit/push, then shift remaining pending subtasks to
+  OpenCode+Ollama before doing more Claude-side work.
+- Only treat an actual rate-limit error as the trigger if no earlier
+  warning was available.
+
 ## Task tracking
 
 Run `TaskList` before doing anything — don't re-derive phase context from
