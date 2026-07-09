@@ -1,0 +1,22 @@
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: dev_root_password
+      MYSQL_DATABASE: capacity_dev
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-proot", "-pdev_root_password"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mysql_data:
+
+# Phase 4 (Integrations) adds an `ai-adapter` service here (the containerized
+# Ollama-calling sidecar — see docs/adr/0002-ai-adapter.md). Not needed yet.
