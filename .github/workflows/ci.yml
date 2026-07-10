@@ -47,7 +47,7 @@ jobs:
       - name: Unit + integration tests
         working-directory: api
         env:
-          ConnectionStrings__Default: "Server=127.0.0.1;Port=3306;Database=capacity_test;User=root;Password=root;"
+          ConnectionStrings__CapacityDb: "Server=127.0.0.1;Port=3306;Database=capacity_test;User=root;Password=root;"
         run: dotnet test --no-build --configuration Release --verbosity normal
 
   web:
