@@ -12,27 +12,48 @@ public static class DbInitializer
 {
     public static async Task SeedAsync(CapacityDbContext db)
     {
-        await SeedAdminUserAsync(db);
+        await SeedDevUsersAsync(db);
         await SeedWorkflowConfigAsync(db);
         await db.SaveChangesAsync();
     }
 
-    private static async Task SeedAdminUserAsync(CapacityDbContext db)
+    /// <summary>
+    /// Seeds one Users row per MockIdentityProvider dev account (see
+    /// MockIdentityProvider.cs) so that the "user_id" JWT claim issued on
+    /// login for any of them resolves to a real Users row — Request.RequestorUserId
+    /// and AuditLog.PerformedByUserId are both FK-constrained, so logging in as
+    /// e.g. "requestor.dev" and creating/transitioning a Request would otherwise
+    /// fail with a foreign-key violation. Each user is seeded independently
+    /// (rather than bailing out early once "admin" exists) so this stays
+    /// idempotent even against a dev DB that only has the original "admin" row.
+    ///
+    /// Ids are assigned explicitly to match MockIdentityProvider's hardcoded
+    /// AuthResult.UserId values 1-4 exactly — relying on AUTO_INCREMENT order
+    /// alone is fragile (a rolled-back insert, e.g. from a transient deadlock
+    /// during a concurrent test run, silently burns a sequence value and
+    /// desyncs the two).
+    /// </summary>
+    private static async Task SeedDevUsersAsync(CapacityDbContext db)
     {
-        var exists = await db.Users.AnyAsync(u => u.AdUsername == "admin");
-        if (exists)
+        var devUsers = new[]
         {
-            return;
-        }
+            new User { Id = 1, AdUsername = "admin", DisplayName = "Local Admin", Role = UserRole.Admin, Email = "admin@dev.local" },
+            new User { Id = 2, AdUsername = "requestor.dev", DisplayName = "Dev Requestor", Role = UserRole.Requestor, Email = "requestor.dev@dev.local" },
+            new User { Id = 3, AdUsername = "capacitymanager.dev", DisplayName = "Dev Capacity Manager", Role = UserRole.CapacityManager, Email = "capacitymanager.dev@dev.local" },
+            new User { Id = 4, AdUsername = "infrahead.dev", DisplayName = "Dev Infra Head", Role = UserRole.InfraHead, Email = "infrahead.dev@dev.local" },
+        };
 
-        db.Users.Add(new User
+        foreach (var user in devUsers)
         {
-            AdUsername = "admin",
-            DisplayName = "Local Admin",
-            Role = UserRole.Admin,
-            Email = "admin@dev.local",
-            CreatedAt = DateTime.UtcNow,
-        });
+            var exists = await db.Users.AnyAsync(u => u.AdUsername == user.AdUsername);
+            if (exists)
+            {
+                continue;
+            }
+
+            user.CreatedAt = DateTime.UtcNow;
+            db.Users.Add(user);
+        }
     }
 
     private static async Task SeedWorkflowConfigAsync(CapacityDbContext db)

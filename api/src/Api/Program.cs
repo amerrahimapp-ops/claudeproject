@@ -62,6 +62,8 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapAuthEndpoints();
+app.MapRequestsEndpoints();
+app.MapWorkflowEndpoints();
 
 app.MapGet("/health", async (CapacityDbContext db) =>
 {
