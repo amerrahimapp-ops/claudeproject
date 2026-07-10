@@ -57,6 +57,19 @@ value per integration in `appsettings.Development.json` (see spec Section
 user-secrets` / a git-ignored `.env`; CI secrets go in GitHub Actions
 encrypted secrets. The CI secrets-scan step enforces this.
 
+**Any change to `.github/workflows/*.yml` must be validated with
+`actionlint` before pushing** — generic YAML parsers (e.g. PyYAML) only
+check syntax and will happily pass a file that's semantically invalid per
+GitHub's own schema (e.g. `hashFiles()` used in a job-level `if:`, which
+GitHub rejects at parse time with zero jobs and a near-useless "workflow
+file issue" error that doesn't surface via the API, only the web UI — this
+cost real time to diagnose once already, see `docs/progress/phase-3-status.md`).
+Run via Docker, no local install needed:
+```
+docker run --rm -v "<repo-path>:/repo" -w /repo rhysd/actionlint:latest -color
+```
+Exit code 0 = clean.
+
 ## Never delegate to OpenCode/Ollama
 
 Workflow engine state machine, security/RBAC/auth code, AI adapter design,
