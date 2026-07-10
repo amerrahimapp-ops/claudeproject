@@ -1,8 +1,13 @@
 name: CI
 
 on:
-  pull_request:
-    branches: [main]
+  push:
+    branches: [main, "phase/**"]
+  # pull_request-triggered runs never register on this account/repo (push
+  # events fire reliably; pull_request never does, even after fixing a
+  # dangling default_branch pointer and waiting for propagation) — using
+  # push as a workaround. Checks run per-commit instead of strictly
+  # PR-gated, which is an acceptable tradeoff for a solo-author repo.
 
 jobs:
   secrets-scan:
