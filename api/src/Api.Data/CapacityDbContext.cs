@@ -45,6 +45,7 @@ public class CapacityDbContext : DbContext
             entity.Property(r => r.CurrentCapacity).HasColumnType("json");
             entity.Property(r => r.RequestedCapacity).HasColumnType("json");
             entity.Property(r => r.UpliftPercentages).HasColumnType("json");
+            entity.Property(r => r.ConcurrencyVersion).IsConcurrencyToken();
 
             entity.HasOne(r => r.RequestorUser)
                 .WithMany(u => u.Requests)

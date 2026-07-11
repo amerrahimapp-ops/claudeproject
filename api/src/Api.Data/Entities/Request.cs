@@ -27,6 +27,14 @@ public class Request
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 
+    /// <summary>
+    /// Optimistic concurrency token, manually incremented on every workflow
+    /// transition (see WorkflowEngine). Prevents two concurrent transitions
+    /// on the same request from both succeeding and silently overwriting
+    /// each other's state.
+    /// </summary>
+    public int ConcurrencyVersion { get; set; }
+
     public ICollection<RequestServer> RequestServers { get; set; } = new List<RequestServer>();
     public ICollection<Justification> Justifications { get; set; } = new List<Justification>();
     public ICollection<WorkflowStage> WorkflowStages { get; set; } = new List<WorkflowStage>();

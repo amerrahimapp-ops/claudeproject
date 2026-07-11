@@ -18,6 +18,7 @@ namespace Api.Tests;
 /// Prerequisite: `docker compose up -d mysql` from the repo root must be
 /// running before this test executes.
 /// </summary>
+[Collection("Integration")]
 public class HealthAndRequestsEndpointTests : IClassFixture<WebApplicationFactory<Program>>
 {
     private readonly WebApplicationFactory<Program> _factory;
