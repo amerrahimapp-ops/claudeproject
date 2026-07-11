@@ -1,15 +1,16 @@
 import type { ReactNode } from 'react'
-import { Layout, Menu, Typography, Space, Tag, Select, message } from 'antd'
+import { Button, Layout, Menu, Typography, Space, Tag, Select, message } from 'antd'
 import {
   CheckSquareOutlined,
   DashboardOutlined,
   FileAddOutlined,
   FileTextOutlined,
+  LogoutOutlined,
   SafetyCertificateOutlined,
   SettingOutlined,
   UnorderedListOutlined,
 } from '@ant-design/icons'
-import { Link, Navigate, Outlet, useLocation } from 'react-router-dom'
+import { Link, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../context/useAuth'
 import type { UserRole } from '../context/authContext'
@@ -82,8 +83,14 @@ const NAV_ITEMS: NavItem[] = [
  */
 export function AuthenticatedLayout() {
   const location = useLocation()
-  const { user, role, isAuthenticated } = useAuth()
+  const navigate = useNavigate()
+  const { user, role, isAuthenticated, logout } = useAuth()
   const queryClient = useQueryClient()
+
+  const handleLogout = () => {
+    logout()
+    navigate('/login')
+  }
 
   // "Default landing page after login" preference — see
   // web/src/api/preferences.ts and api/src/Api/Modules/Auth/MeEndpoints.cs.
@@ -170,6 +177,15 @@ export function AuthenticatedLayout() {
             )}
             <Text type="secondary">{user?.name ?? 'Not signed in'}</Text>
             {user && <Tag>{user.role}</Tag>}
+            {user && (
+              <Button
+                size="small"
+                icon={<LogoutOutlined />}
+                onClick={handleLogout}
+              >
+                Logout
+              </Button>
+            )}
           </Space>
         </Header>
         <Content style={{ padding: 16 }}>
