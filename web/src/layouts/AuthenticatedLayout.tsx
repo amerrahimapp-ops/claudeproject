@@ -57,7 +57,12 @@ const NAV_ITEMS: NavItem[] = [
     roles: ['InfraHead', 'Admin'],
   },
   { key: '/reports', label: 'Reports', icon: <FileTextOutlined /> },
-  { key: '/admin', label: 'Admin', icon: <SettingOutlined /> },
+  {
+    key: '/admin',
+    label: 'Admin',
+    icon: <SettingOutlined />,
+    roles: ['Admin'],
+  },
 ]
 
 /**

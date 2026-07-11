@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Api.Data;
 using Api.Modules.Admin;
 using Api.Modules.Ai;
@@ -108,15 +109,22 @@ app.MapGet("/health", async (CapacityDbContext db) =>
 })
 .WithName("HealthCheck");
 
-// List endpoint — not filtered by requestor yet (see CLAUDE.md/phase docs);
-// returns every request, mapped through RequestMapper for the same
-// string-enum shape GET /api/v1/requests/{id} already uses.
-app.MapGet("/api/v1/requests", async (CapacityDbContext db) =>
+// List endpoint — row-level security per spec 6.2: a Requestor sees only
+// their own requests; CapacityManager/InfraHead/Admin see every request
+// (they need the full queue to review/approve). Mapped through
+// RequestMapper for the same string-enum shape GET /api/v1/requests/{id}
+// already uses.
+app.MapGet("/api/v1/requests", async (ClaimsPrincipal user, CapacityDbContext db) =>
 {
-    var requests = await db.Requests
-        .Include(r => r.WorkflowStages)
-        .AsNoTracking()
-        .ToListAsync();
+    var query = db.Requests.Include(r => r.WorkflowStages).AsNoTracking();
+
+    if (user.IsInRole("Requestor"))
+    {
+        var actingUserId = int.Parse(user.FindFirstValue("user_id")!);
+        query = query.Where(r => r.RequestorUserId == actingUserId);
+    }
+
+    var requests = await query.ToListAsync();
     return Results.Ok(requests.Select(RequestMapper.ToResponse));
 })
 .WithName("GetRequests")
