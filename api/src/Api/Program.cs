@@ -4,6 +4,7 @@ using Api.Modules.Ai;
 using Api.Modules.Auth;
 using Api.Modules.Integrations;
 using Api.Modules.Integrations.Email;
+using Api.Modules.Integrations.Grafana;
 using Api.Modules.Notifications;
 using Api.Modules.Reports;
 using Api.Modules.Requests;
@@ -66,6 +67,7 @@ app.MapAuthEndpoints();
 app.MapRequestsEndpoints();
 app.MapWorkflowEndpoints();
 app.MapEmailEndpoints();
+app.MapGrafanaEndpoints();
 
 app.MapGet("/health", async (CapacityDbContext db) =>
 {
