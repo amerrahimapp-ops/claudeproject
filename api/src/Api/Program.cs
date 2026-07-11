@@ -83,12 +83,14 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapAuthEndpoints();
+app.MapMeEndpoints();
 app.MapRequestsEndpoints();
 app.MapWorkflowEndpoints();
 app.MapEmailEndpoints();
 app.MapGrafanaEndpoints();
 app.MapReportsEndpoints();
 app.MapAiEndpoints();
+app.MapAdminEndpoints();
 
 app.MapGet("/health", async (CapacityDbContext db) =>
 {

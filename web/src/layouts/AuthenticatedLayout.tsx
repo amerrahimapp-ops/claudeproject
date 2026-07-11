@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Layout, Menu, Typography, Space, Tag } from 'antd'
+import { Layout, Menu, Typography, Space, Tag, Select, message } from 'antd'
 import {
   CheckSquareOutlined,
   DashboardOutlined,
@@ -10,8 +10,20 @@ import {
   UnorderedListOutlined,
 } from '@ant-design/icons'
 import { Link, Navigate, Outlet, useLocation } from 'react-router-dom'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../context/useAuth'
 import type { UserRole } from '../context/authContext'
+import {
+  fetchMyPreferences,
+  updateMyPreferences,
+  type DefaultView,
+} from '../api/preferences'
+
+const DEFAULT_VIEW_OPTIONS: { value: DefaultView; label: string }[] = [
+  { value: 'Dashboard', label: 'Landing page: Dashboard' },
+  { value: 'NewRequest', label: 'Landing page: New Request' },
+  { value: 'ApprovalQueue', label: 'Landing page: My Approval Queue' },
+]
 
 const { Header, Sider, Content } = Layout
 const { Text } = Typography
@@ -66,6 +78,27 @@ const NAV_ITEMS: NavItem[] = [
 export function AuthenticatedLayout() {
   const location = useLocation()
   const { user, role, isAuthenticated } = useAuth()
+  const queryClient = useQueryClient()
+
+  // "Default landing page after login" preference — see
+  // web/src/api/preferences.ts and api/src/Api/Modules/Auth/MeEndpoints.cs.
+  // Deliberately minimal: one dropdown, no broader settings page.
+  const { data: preferences } = useQuery({
+    queryKey: ['myPreferences'],
+    queryFn: fetchMyPreferences,
+    enabled: isAuthenticated,
+  })
+
+  const updatePreference = useMutation({
+    mutationFn: updateMyPreferences,
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['myPreferences'], updated)
+      message.success('Default landing page updated.')
+    },
+    onError: () => {
+      message.error('Failed to update your preference. Please try again.')
+    },
+  })
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />
@@ -120,6 +153,16 @@ export function AuthenticatedLayout() {
             <Text>Capacity Request Management</Text>
           </Space>
           <Space>
+            {user && (
+              <Select<DefaultView>
+                size="small"
+                style={{ width: 210 }}
+                value={preferences?.defaultView ?? 'Dashboard'}
+                loading={updatePreference.isPending}
+                options={DEFAULT_VIEW_OPTIONS}
+                onChange={(value) => updatePreference.mutate(value)}
+              />
+            )}
             <Text type="secondary">{user?.name ?? 'Not signed in'}</Text>
             {user && <Tag>{user.role}</Tag>}
           </Space>
