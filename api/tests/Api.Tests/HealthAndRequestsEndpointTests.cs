@@ -94,7 +94,7 @@ public class HealthAndRequestsEndpointTests : IClassFixture<WebApplicationFactor
         // below has a guaranteed-own row to find even on a fresh DB.
         await client.PostAsJsonAsync(
             "/api/v1/requests",
-            new { environment = "Dev", projectType = "New", priority = "Low" });
+            TestRequestPayloads.ValidCreateRequest(environment: "Dev", priority: "Low"));
 
         var response = await client.GetAsync("/api/v1/requests");
 
@@ -114,7 +114,7 @@ public class HealthAndRequestsEndpointTests : IClassFixture<WebApplicationFactor
         requestorClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", requestorToken);
         await requestorClient.PostAsJsonAsync(
             "/api/v1/requests",
-            new { environment = "Dev", projectType = "New", priority = "Low" });
+            TestRequestPayloads.ValidCreateRequest(environment: "Dev", priority: "Low"));
 
         var adminClient = _factory.CreateClient();
         var adminToken = await GetAccessTokenAsync(adminClient, "admin");

@@ -34,6 +34,9 @@ public class WorkflowEngine : IWorkflowEngine
         int requestId, string targetStage, int actingUserId, UserRole actingUserRole, string? comments)
     {
         var request = await _db.Requests
+            .Include(r => r.RequestorUser)
+            .Include(r => r.RequestServers)
+            .Include(r => r.Justifications)
             .Include(r => r.WorkflowStages)
             .FirstOrDefaultAsync(r => r.Id == requestId);
 

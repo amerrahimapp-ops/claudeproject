@@ -116,7 +116,10 @@ app.MapGet("/health", async (CapacityDbContext db) =>
 // already uses.
 app.MapGet("/api/v1/requests", async (ClaimsPrincipal user, CapacityDbContext db) =>
 {
-    var query = db.Requests.Include(r => r.WorkflowStages).AsNoTracking();
+    var query = db.Requests
+        .Include(r => r.RequestorUser)
+        .Include(r => r.WorkflowStages)
+        .AsNoTracking();
 
     if (user.IsInRole("Requestor"))
     {

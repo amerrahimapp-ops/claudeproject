@@ -41,9 +41,15 @@ public class CapacityDbContext : DbContext
             entity.HasIndex(r => r.RequestNumber).IsUnique();
             entity.Property(r => r.RequestNumber).HasMaxLength(20).IsRequired();
             entity.Property(r => r.Status).HasConversion<string>().HasMaxLength(50);
+            entity.Property(r => r.Title).HasMaxLength(200).IsRequired();
+            entity.Property(r => r.Department).HasMaxLength(100).IsRequired();
+            entity.Property(r => r.ProjectName).HasMaxLength(200).IsRequired();
+            entity.Property(r => r.ProjectCode).HasMaxLength(50).IsRequired();
+            entity.Property(r => r.Sponsor).HasMaxLength(200).IsRequired();
             entity.Property(r => r.Environment).HasConversion<string>().HasMaxLength(20);
             entity.Property(r => r.ProjectType).HasConversion<string>().HasMaxLength(20);
             entity.Property(r => r.Priority).HasConversion<string>().HasMaxLength(20);
+            entity.Property(r => r.Description).HasColumnType("text");
             entity.Property(r => r.CurrentCapacity).HasColumnType("json");
             entity.Property(r => r.RequestedCapacity).HasColumnType("json");
             entity.Property(r => r.UpliftPercentages).HasColumnType("json");
@@ -58,6 +64,8 @@ public class CapacityDbContext : DbContext
         modelBuilder.Entity<RequestServer>(entity =>
         {
             entity.Property(rs => rs.Hostname).HasMaxLength(255).IsRequired();
+            entity.Property(rs => rs.IpAddress).HasMaxLength(45).IsRequired();
+            entity.Property(rs => rs.Os).HasMaxLength(100);
             entity.Property(rs => rs.ResourceType).HasConversion<string>().HasMaxLength(20);
             entity.Property(rs => rs.Platform).HasConversion<string>().HasMaxLength(20);
             entity.Property(rs => rs.MountPoint).HasMaxLength(255);
@@ -76,6 +84,7 @@ public class CapacityDbContext : DbContext
             entity.Property(j => j.ResourceType).HasConversion<string>().HasMaxLength(20);
             entity.Property(j => j.QuestionKey).HasMaxLength(255).IsRequired();
             entity.Property(j => j.AnswerText).HasColumnType("text").IsRequired();
+            entity.Property(j => j.AttachmentPaths).HasColumnType("json");
 
             entity.HasOne(j => j.Request)
                 .WithMany(r => r.Justifications)
@@ -94,6 +103,11 @@ public class CapacityDbContext : DbContext
                 .WithMany(r => r.WorkflowStages)
                 .HasForeignKey(ws => ws.RequestId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(ws => ws.AssignedUser)
+                .WithMany()
+                .HasForeignKey(ws => ws.AssignedUserId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<Attachment>(entity =>

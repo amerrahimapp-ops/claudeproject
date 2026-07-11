@@ -217,12 +217,7 @@ public class WorkflowEngineTests : IClassFixture<WebApplicationFactory<Program>>
     private static async Task<int> CreateDraftRequestAsync(HttpClient client, string token)
     {
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        var response = await client.PostAsJsonAsync("/api/v1/requests", new
-        {
-            environment = "Prod",
-            projectType = "New",
-            priority = "Medium",
-        });
+        var response = await client.PostAsJsonAsync("/api/v1/requests", TestRequestPayloads.ValidCreateRequest());
         response.EnsureSuccessStatusCode();
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
         return body.GetProperty("id").GetInt32();
