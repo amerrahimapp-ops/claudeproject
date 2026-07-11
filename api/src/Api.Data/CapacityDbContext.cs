@@ -19,6 +19,8 @@ public class CapacityDbContext : DbContext
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<UserPreference> UserPreferences => Set<UserPreference>();
     public DbSet<WorkflowConfig> WorkflowConfigs => Set<WorkflowConfig>();
+    public DbSet<AiEvaluation> AiEvaluations => Set<AiEvaluation>();
+    public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -144,6 +146,29 @@ public class CapacityDbContext : DbContext
             entity.Property(wc => wc.RequiredRole).HasMaxLength(50);
             entity.Property(wc => wc.ValidationRules).HasColumnType("json");
             entity.Property(wc => wc.NotificationTemplateId).HasMaxLength(100);
+        });
+
+        modelBuilder.Entity<AiEvaluation>(entity =>
+        {
+            entity.Property(ae => ae.Prompt).HasColumnType("text").IsRequired();
+            entity.Property(ae => ae.RawResponse).HasColumnType("text").IsRequired();
+            entity.Property(ae => ae.Recommendation).HasMaxLength(50);
+            entity.Property(ae => ae.FlagsJson).HasColumnType("json");
+
+            entity.HasOne(ae => ae.Request)
+                .WithMany()
+                .HasForeignKey(ae => ae.RequestId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<OutboxMessage>(entity =>
+        {
+            entity.Property(om => om.MessageType).HasMaxLength(50).IsRequired();
+            entity.Property(om => om.Payload).HasColumnType("json").IsRequired();
+            entity.Property(om => om.Status).HasConversion<string>().HasMaxLength(20);
+            entity.Property(om => om.LastError).HasColumnType("text");
+
+            entity.HasIndex(om => new { om.Status, om.CreatedAt });
         });
     }
 }
