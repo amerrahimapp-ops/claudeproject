@@ -19,8 +19,13 @@ export interface AuthContextValue {
   /** Convenience accessor for user?.role — for parallel-built nav guards/UI. */
   role: UserRole | null
   isAuthenticated: boolean
-  /** Calls POST /api/v1/auth/login; throws ApiError on a non-2xx response. */
-  login: (username: string, password: string) => Promise<void>
+  /**
+   * Calls POST /api/v1/auth/login; throws ApiError on a non-2xx response.
+   * Returns the logged-in user so callers (e.g. LoginPage, resolving the
+   * default-landing-page preference) don't have to wait on a re-render to
+   * read the fresh role off of `useAuth()`.
+   */
+  login: (username: string, password: string) => Promise<AuthUser>
   logout: () => void
 }
 

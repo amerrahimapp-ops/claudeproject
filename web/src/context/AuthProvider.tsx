@@ -64,8 +64,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session))
 
-    setUser(userFromSession(session))
+    const nextUser = userFromSession(session)
+    setUser(nextUser)
     setToken(session.accessToken)
+    return nextUser
   }, [])
 
   const logout = useCallback(() => {
