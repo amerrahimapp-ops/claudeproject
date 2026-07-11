@@ -3,6 +3,7 @@ using Api.Modules.Admin;
 using Api.Modules.Ai;
 using Api.Modules.Auth;
 using Api.Modules.Integrations;
+using Api.Modules.Integrations.Email;
 using Api.Modules.Notifications;
 using Api.Modules.Reports;
 using Api.Modules.Requests;
@@ -33,7 +34,7 @@ builder.Services.AddDbContext<CapacityDbContext>(options =>
 // --- Modular monolith wiring: one registration call per module ---
 builder.Services.AddRequestsModule();
 builder.Services.AddWorkflowModule();
-builder.Services.AddIntegrationsModule();
+builder.Services.AddIntegrationsModule(builder.Configuration);
 builder.Services.AddNotificationsModule();
 builder.Services.AddAuthModule(builder.Configuration, builder.Environment);
 builder.Services.AddReportsModule();
@@ -64,6 +65,7 @@ app.UseAuthorization();
 app.MapAuthEndpoints();
 app.MapRequestsEndpoints();
 app.MapWorkflowEndpoints();
+app.MapEmailEndpoints();
 
 app.MapGet("/health", async (CapacityDbContext db) =>
 {
