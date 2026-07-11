@@ -326,8 +326,11 @@ export function NewRequestPage() {
       environment: projectInfo.environment,
       projectType: projectInfo.projectType,
       priority: projectInfo.priority,
-      startDate: start.startOf('day').toISOString(),
-      endDate: end.startOf('day').toISOString(),
+      // Plain date strings, not toISOString() — that converts to UTC and
+      // shifts the calendar date backward for any timezone ahead of UTC
+      // (e.g. local midnight Aug 1 in UTC+8 becomes Jul 31 16:00 UTC).
+      startDate: start.format('YYYY-MM-DD'),
+      endDate: end.format('YYYY-MM-DD'),
       description: projectInfo.description?.trim()
         ? projectInfo.description.trim()
         : null,
