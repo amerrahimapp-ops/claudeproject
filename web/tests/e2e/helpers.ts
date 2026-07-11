@@ -25,7 +25,7 @@ export const NAV_VISIBILITY: Record<string, DevRole[] | 'all'> = {
   'Capacity Review': ['CapacityManager', 'Admin'],
   'Infra Approval': ['InfraHead', 'Admin'],
   Reports: 'all',
-  Admin: 'all',
+  Admin: ['Admin'],
 }
 
 /** Logs in through the real UI form (not a mocked session) as the given dev role. */
@@ -77,13 +77,20 @@ export async function apiTransition(
   expect(response.ok(), `transition to ${targetStage} failed: ${await response.text()}`).toBeTruthy()
 }
 
-/** Drives a freshly-created draft request all the way to capacity_review, as its owner. */
+/**
+ * Drives a freshly-created draft request all the way to capacity_review, as
+ * its owner. Since Phase 7b, `submitted -> ai_evaluation -> ai_reviewed` is
+ * an automatic cascade the API performs synchronously inside the `submitted`
+ * transition itself (WorkflowAutomationService) - only `submitted` and the
+ * Requestor's own `capacity_review` confirmation are still real, separate
+ * calls.
+ */
 export async function fastForwardToCapacityReview(
   request: APIRequestContext,
   requestorToken: string,
   requestId: number,
 ): Promise<void> {
-  for (const stage of ['submitted', 'ai_evaluation', 'ai_reviewed', 'capacity_review']) {
+  for (const stage of ['submitted', 'capacity_review']) {
     await apiTransition(request, requestorToken, requestId, stage)
   }
 }
