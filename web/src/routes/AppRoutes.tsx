@@ -2,16 +2,21 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { AuthenticatedLayout } from '../layouts/AuthenticatedLayout'
 import { BareLayout } from '../layouts/BareLayout'
 import { AdminPage } from '../pages/AdminPage'
+import { CapacityQueuePage } from '../pages/CapacityQueuePage'
 import { DashboardPage } from '../pages/DashboardPage'
+import { InfraApprovalQueuePage } from '../pages/InfraApprovalQueuePage'
 import { LoginPage } from '../pages/LoginPage'
 import { NewRequestPage } from '../pages/NewRequestPage'
 import { NotFoundPage } from '../pages/NotFoundPage'
+import { ReportsPage } from '../pages/ReportsPage'
 import { RequestDetailPage } from '../pages/RequestDetailPage'
+import { RequireRole } from './RequireRole'
 
 /**
- * Route skeleton for Phase 2. Pages are placeholders (heading + "Phase 5"
- * note) — real page content/guarding (e.g. redirecting unauthenticated
- * users away from the authenticated layout) is built out in Phase 5.
+ * Route table. `RequireRole` wraps the two approval-queue routes so a user
+ * with the wrong role sees an "Access Denied" page instead of the queue UI
+ * — this is a UX nicety only; see RequireRole.tsx for why it's not a real
+ * security boundary.
  */
 export function AppRoutes() {
   return (
@@ -24,6 +29,23 @@ export function AppRoutes() {
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/requests/new" element={<NewRequestPage />} />
         <Route path="/requests/:id" element={<RequestDetailPage />} />
+        <Route
+          path="/queues/capacity-review"
+          element={
+            <RequireRole allow={['CapacityManager', 'Admin']}>
+              <CapacityQueuePage />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="/queues/infra-approval"
+          element={
+            <RequireRole allow={['InfraHead', 'Admin']}>
+              <InfraApprovalQueuePage />
+            </RequireRole>
+          }
+        />
+        <Route path="/reports" element={<ReportsPage />} />
         <Route path="/admin" element={<AdminPage />} />
       </Route>
 

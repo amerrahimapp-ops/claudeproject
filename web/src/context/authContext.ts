@@ -16,8 +16,11 @@ export interface AuthUser {
 export interface AuthContextValue {
   user: AuthUser | null
   token: string | null
+  /** Convenience accessor for user?.role — for parallel-built nav guards/UI. */
+  role: UserRole | null
   isAuthenticated: boolean
-  login: (user: AuthUser, token: string) => void
+  /** Calls POST /api/v1/auth/login; throws ApiError on a non-2xx response. */
+  login: (username: string, password: string) => Promise<void>
   logout: () => void
 }
 
