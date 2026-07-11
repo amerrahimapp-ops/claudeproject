@@ -2,9 +2,12 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Api.Modules.Integrations.Email;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Extensions.Configuration;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Api.Tests;
 
@@ -25,14 +28,16 @@ public class EmailEndpointTests : IClassFixture<WebApplicationFactory<Program>>
             builder.UseEnvironment("Development");
             // Force Mock regardless of what a developer's local
             // appsettings.Development.json has configured (e.g. real
-            // Mailtrap credentials) - these tests must always exercise the
-            // mock path, not silently hit a live provider.
-            builder.ConfigureAppConfiguration((_, config) =>
+            // Mailtrap credentials). A config-key override
+            // (ConfigureAppConfiguration) is NOT reliable here - the
+            // Provider switch is read once in Program.cs's AddIntegrationsModule
+            // call during host build, and config added via
+            // ConfigureAppConfiguration doesn't consistently win that race.
+            // Replacing the DI registration directly is deterministic.
+            builder.ConfigureTestServices(services =>
             {
-                config.AddInMemoryCollection(new Dictionary<string, string?>
-                {
-                    ["Email:Provider"] = "Mock",
-                });
+                services.RemoveAll<IEmailClient>();
+                services.AddSingleton<IEmailClient, MockEmailClient>();
             });
         });
     }

@@ -1,9 +1,12 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using Api.Modules.Integrations.Grafana;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Extensions.Configuration;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Api.Tests;
 
@@ -24,14 +27,16 @@ public class GrafanaEndpointTests : IClassFixture<WebApplicationFactory<Program>
             builder.UseEnvironment("Development");
             // Force Mock regardless of what a developer's local
             // appsettings.Development.json has configured (e.g. real
-            // Grafana credentials) - these tests must always exercise the
-            // mock path, not silently hit a live provider.
-            builder.ConfigureAppConfiguration((_, config) =>
+            // Grafana credentials). A config-key override
+            // (ConfigureAppConfiguration) is NOT reliable here - the
+            // Provider switch is read once in Program.cs's AddIntegrationsModule
+            // call during host build, and config added via
+            // ConfigureAppConfiguration doesn't consistently win that race.
+            // Replacing the DI registration directly is deterministic.
+            builder.ConfigureTestServices(services =>
             {
-                config.AddInMemoryCollection(new Dictionary<string, string?>
-                {
-                    ["Grafana:Provider"] = "Mock",
-                });
+                services.RemoveAll<IGrafanaClient>();
+                services.AddSingleton<IGrafanaClient, MockGrafanaClient>();
             });
         });
     }
