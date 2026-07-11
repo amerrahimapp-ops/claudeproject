@@ -94,7 +94,7 @@ public static class DbInitializer
             {
                 StageName = "ai_reviewed",
                 SequenceOrder = 4,
-                AllowedTransitions = """["capacity_review"]""",
+                AllowedTransitions = """["submitted", "capacity_review"]""",
                 RequiredRole = null,
             },
             new WorkflowConfig
