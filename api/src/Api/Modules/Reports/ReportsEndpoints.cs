@@ -1,4 +1,5 @@
 using Api.Data;
+using Api.Data.Entities;
 using Microsoft.EntityFrameworkCore;
 
 namespace Api.Modules.Reports;
@@ -30,7 +31,13 @@ public static class ReportsEndpoints
                 return Results.NotFound();
             }
 
-            var bytes = reportGenerator.GenerateRequestReport(request);
+            var aiEvaluations = await db.AiEvaluations
+                .Where(ae => ae.RequestId == id)
+                .OrderByDescending(ae => ae.EvaluatedAt)
+                .AsNoTracking()
+                .ToListAsync();
+
+            var bytes = reportGenerator.GenerateRequestReport(request, aiEvaluations);
 
             return Results.File(
                 bytes,

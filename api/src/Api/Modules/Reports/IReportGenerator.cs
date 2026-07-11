@@ -17,6 +17,10 @@ public interface IReportGenerator
     /// <c>WorkflowStages</c> (and, for the Requestor's display name,
     /// <c>RequestorUser</c>) before calling this — no lazy-loading proxies
     /// are configured on <c>CapacityDbContext</c>.
+    /// <paramref name="aiEvaluations"/> is the request's full AI evaluation
+    /// history (there may be more than one, e.g. after a revise-and-resubmit)
+    /// — the caller queries these separately since <c>Request</c> has no
+    /// navigation collection for them; pass an empty list if none exist yet.
     /// </summary>
-    byte[] GenerateRequestReport(Request request);
+    byte[] GenerateRequestReport(Request request, IReadOnlyList<AiEvaluation> aiEvaluations);
 }

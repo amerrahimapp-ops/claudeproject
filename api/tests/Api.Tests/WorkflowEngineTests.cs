@@ -4,21 +4,33 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Api.Data;
 using Api.Data.Entities;
+using Api.Modules.Ai;
+using Api.Modules.Integrations.Grafana;
 using Api.Modules.Workflow;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Api.Tests;
 
 /// <summary>
-/// Phase 3 workflow engine tests. Same WebApplicationFactory + real local
-/// MySQL integration-test pattern as HealthAndRequestsEndpointTests. Drives
-/// the Phase-1 flow (draft -> submitted -> ai_evaluation -> ai_reviewed ->
-/// capacity_review -> infra_approval -> done) purely through the public
-/// HTTP API, using real JWTs obtained from /api/v1/auth/login for the four
-/// MockIdentityProvider dev users (see MockIdentityProvider.cs).
+/// Phase 3 workflow engine tests, extended in Phase 7b for the automatic
+/// submitted -&gt; ai_evaluation -&gt; ai_reviewed chain (WorkflowAutomationService).
+/// Same WebApplicationFactory + real local MySQL integration-test pattern as
+/// HealthAndRequestsEndpointTests. Drives the Phase-1 flow (draft ->
+/// submitted -> ai_evaluation -> ai_reviewed -> capacity_review ->
+/// infra_approval -> done) purely through the public HTTP API, using real
+/// JWTs obtained from /api/v1/auth/login for the four MockIdentityProvider
+/// dev users (see MockIdentityProvider.cs).
+///
+/// Forces Mock AI/Grafana providers regardless of local
+/// appsettings.Development.json (same reasoning as AiEndpointTests/
+/// GrafanaEndpointTests): every "submitted" transition now automatically
+/// triggers the AI evaluation chain, so without this override these tests
+/// would flakily hit real Ollama/Grafana Cloud.
 ///
 /// Prerequisite: `docker compose up -d mysql` from the repo root.
 /// </summary>
@@ -32,11 +44,18 @@ public class WorkflowEngineTests : IClassFixture<WebApplicationFactory<Program>>
         _factory = factory.WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment("Development");
+            builder.ConfigureTestServices(services =>
+            {
+                services.RemoveAll<IAiEvaluationClient>();
+                services.AddSingleton<IAiEvaluationClient, MockAiEvaluationClient>();
+                services.RemoveAll<IGrafanaClient>();
+                services.AddSingleton<IGrafanaClient, MockGrafanaClient>();
+            });
         });
     }
 
     [Fact]
-    public async Task Transition_DraftToSubmitted_ByRequestor_Succeeds()
+    public async Task Transition_DraftToSubmitted_AutomaticallyReachesAiReviewedWithMockEvaluation()
     {
         var client = _factory.CreateClient();
         var requestorToken = await GetAccessTokenAsync(client, "requestor.dev");
@@ -46,13 +65,29 @@ public class WorkflowEngineTests : IClassFixture<WebApplicationFactory<Program>>
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal("Submitted", body.GetProperty("status").GetString());
+
+        // The response reflects the *final* state after the automatic
+        // submitted -> ai_evaluation -> ai_reviewed chain, not just the
+        // directly-requested "submitted" transition (WorkflowAutomationService).
+        Assert.Equal("AiReviewed", body.GetProperty("status").GetString());
 
         var stages = body.GetProperty("workflowStages").EnumerateArray().ToList();
-        var submittedStage = stages.Single(s => s.GetProperty("stageName").GetString() == "submitted");
-        Assert.Equal("InProgress", submittedStage.GetProperty("status").GetString());
+        var stageNames = stages.Select(s => s.GetProperty("stageName").GetString()).ToList();
+        // "draft" is created implicitly on the first-ever transition (no
+        // WorkflowStage row exists for it at request-creation time).
+        Assert.Equal(new[] { "draft", "submitted", "ai_evaluation", "ai_reviewed" }, stageNames);
+        Assert.Equal("Approved", stages[0].GetProperty("status").GetString());
+        Assert.Equal("Approved", stages[1].GetProperty("status").GetString());
+        Assert.Equal("Approved", stages[2].GetProperty("status").GetString());
+        Assert.Equal("InProgress", stages[3].GetProperty("status").GetString());
 
         await AssertAuditLogWrittenAsync(requestId);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<CapacityDbContext>();
+        var evaluation = await db.AiEvaluations.SingleAsync(ae => ae.RequestId == requestId);
+        Assert.Equal(80, evaluation.Score);
+        Assert.Equal("approve", evaluation.Recommendation);
     }
 
     [Fact]
@@ -80,9 +115,10 @@ public class WorkflowEngineTests : IClassFixture<WebApplicationFactory<Program>>
         var requestorToken = await GetAccessTokenAsync(client, "requestor.dev");
 
         var requestId = await CreateDraftRequestAsync(client, requestorToken);
+        // "submitted" now automatically cascades all the way to ai_reviewed
+        // (WorkflowAutomationService), so only two explicit calls are needed
+        // to reach capacity_review.
         await TransitionAsync(client, requestorToken, requestId, "submitted");
-        await TransitionAsync(client, requestorToken, requestId, "ai_evaluation");
-        await TransitionAsync(client, requestorToken, requestId, "ai_reviewed");
         await TransitionAsync(client, requestorToken, requestId, "capacity_review");
 
         // capacity_review -> infra_approval requires CapacityManager; Requestor should be rejected.
@@ -105,9 +141,8 @@ public class WorkflowEngineTests : IClassFixture<WebApplicationFactory<Program>>
 
         var requestId = await CreateDraftRequestAsync(client, requestorToken);
 
+        // "submitted" automatically cascades to ai_reviewed (WorkflowAutomationService).
         Assert.Equal(HttpStatusCode.OK, (await TransitionAsync(client, requestorToken, requestId, "submitted")).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await TransitionAsync(client, requestorToken, requestId, "ai_evaluation")).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await TransitionAsync(client, requestorToken, requestId, "ai_reviewed")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await TransitionAsync(client, requestorToken, requestId, "capacity_review")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await TransitionAsync(client, capacityManagerToken, requestId, "infra_approval")).StatusCode);
 
@@ -129,6 +164,15 @@ public class WorkflowEngineTests : IClassFixture<WebApplicationFactory<Program>>
             .Select(s => s.GetProperty("status").GetString())
             .ToList();
         Assert.All(statuses, s => Assert.Equal("Approved", s));
+
+        // "done" auto-generates the Excel report and persists it as an
+        // Attachment (WorkflowAutomationService) - confirm the row exists
+        // and the file was actually written to disk.
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<CapacityDbContext>();
+        var attachment = await db.Attachments.SingleAsync(a => a.RequestId == requestId);
+        Assert.Equal("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", attachment.ContentType);
+        Assert.True(File.Exists(attachment.StoragePath), $"Expected generated report file at {attachment.StoragePath}");
     }
 
     [Fact]
@@ -140,8 +184,6 @@ public class WorkflowEngineTests : IClassFixture<WebApplicationFactory<Program>>
 
         var requestId = await CreateDraftRequestAsync(client, requestorToken);
         await TransitionAsync(client, requestorToken, requestId, "submitted");
-        await TransitionAsync(client, requestorToken, requestId, "ai_evaluation");
-        await TransitionAsync(client, requestorToken, requestId, "ai_reviewed");
         await TransitionAsync(client, requestorToken, requestId, "capacity_review");
 
         var rejectResponse = await TransitionAsync(client, capacityManagerToken, requestId, "rejected");
@@ -192,7 +234,8 @@ public class WorkflowEngineTests : IClassFixture<WebApplicationFactory<Program>>
 
         using var scopeB = _factory.Services.CreateScope();
         var dbB = scopeB.ServiceProvider.GetRequiredService<CapacityDbContext>();
-        var engineB = new WorkflowEngine(dbB);
+        var automationB = scopeB.ServiceProvider.GetRequiredService<IWorkflowAutomationService>();
+        var engineB = new WorkflowEngine(dbB, automationB);
         var firstResult = await engineB.TransitionAsync(
             requestId, "submitted", trackedInA.RequestorUserId, UserRole.Requestor, null);
         Assert.Equal(WorkflowTransitionOutcome.Success, firstResult.Outcome);
@@ -200,7 +243,8 @@ public class WorkflowEngineTests : IClassFixture<WebApplicationFactory<Program>>
         // dbA's tracked Request is now stale (DB is at ConcurrencyVersion 1,
         // dbA still has 0) — this transition must be rejected, not silently
         // overwrite engineB's committed change.
-        var engineA = new WorkflowEngine(dbA);
+        var automationA = scopeA.ServiceProvider.GetRequiredService<IWorkflowAutomationService>();
+        var engineA = new WorkflowEngine(dbA, automationA);
         var secondResult = await engineA.TransitionAsync(
             requestId, "submitted", trackedInA.RequestorUserId, UserRole.Requestor, null);
 

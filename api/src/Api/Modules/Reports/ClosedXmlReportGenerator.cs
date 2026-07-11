@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Api.Data.Entities;
 using ClosedXML.Excel;
 
@@ -13,12 +14,12 @@ namespace Api.Modules.Reports;
 /// </summary>
 public class ClosedXmlReportGenerator : IReportGenerator
 {
-    public byte[] GenerateRequestReport(Request request)
+    public byte[] GenerateRequestReport(Request request, IReadOnlyList<AiEvaluation> aiEvaluations)
     {
         using var workbook = new XLWorkbook();
 
         AddRequestSummarySheet(workbook, request);
-        AddAiEvaluationSheet(workbook);
+        AddAiEvaluationSheet(workbook, aiEvaluations);
         AddApprovalChainSheet(workbook, request);
 
         using var stream = new MemoryStream();
@@ -54,17 +55,45 @@ public class ClosedXmlReportGenerator : IReportGenerator
         sheet.Columns().AdjustToContents();
     }
 
-    private static void AddAiEvaluationSheet(XLWorkbook workbook)
+    private static void AddAiEvaluationSheet(XLWorkbook workbook, IReadOnlyList<AiEvaluation> aiEvaluations)
     {
         var sheet = workbook.Worksheets.Add("AI Evaluation Report");
 
         SetHeaderRow(sheet, "Evaluated At", "Score", "Recommendation", "Flags");
 
-        // TODO: populate from the `ai_evaluations` table once the AI adapter
-        // module (Api.Modules.Ai — built in parallel, ADR 0002) exposes a
-        // queryable evaluation history for a request. Left empty (aside from
-        // a placeholder row) rather than blocked on that work landing first.
-        sheet.Cell(2, 1).Value = "No AI evaluation data available";
+        if (aiEvaluations.Count == 0)
+        {
+            // Genuinely no evaluation has ever run for this request (e.g.
+            // it hasn't been submitted yet) — not a placeholder for
+            // unbuilt functionality anymore (see WorkflowAutomationService,
+            // which populates ai_evaluations automatically once a request
+            // is submitted).
+            sheet.Cell(2, 1).Value = "No AI evaluation data available";
+            sheet.Columns().AdjustToContents();
+            return;
+        }
+
+        // Newest first — a request can be evaluated more than once over its
+        // lifetime (e.g. revise-and-resubmit re-enters ai_evaluation).
+        var row = 2;
+        foreach (var evaluation in aiEvaluations.OrderByDescending(e => e.EvaluatedAt))
+        {
+            sheet.Cell(row, 1).Value = evaluation.EvaluatedAt;
+
+            if (evaluation.Score.HasValue)
+            {
+                sheet.Cell(row, 2).Value = evaluation.Score.Value;
+            }
+
+            sheet.Cell(row, 3).Value = evaluation.Recommendation ?? string.Empty;
+
+            var flags = string.IsNullOrWhiteSpace(evaluation.FlagsJson)
+                ? []
+                : JsonSerializer.Deserialize<string[]>(evaluation.FlagsJson) ?? [];
+            sheet.Cell(row, 4).Value = string.Join("; ", flags);
+
+            row++;
+        }
 
         sheet.Columns().AdjustToContents();
     }

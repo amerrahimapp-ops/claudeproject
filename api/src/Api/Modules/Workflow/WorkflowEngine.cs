@@ -24,10 +24,12 @@ public class WorkflowEngine : IWorkflowEngine
     private static readonly string[] TerminalStages = ["done", "rejected", "deferred"];
 
     private readonly CapacityDbContext _db;
+    private readonly IWorkflowAutomationService _automation;
 
-    public WorkflowEngine(CapacityDbContext db)
+    public WorkflowEngine(CapacityDbContext db, IWorkflowAutomationService automation)
     {
         _db = db;
+        _automation = automation;
     }
 
     public async Task<WorkflowTransitionResult> TransitionAsync(
@@ -195,6 +197,14 @@ public class WorkflowEngine : IWorkflowEngine
                 $"Request {requestId} was modified by another transition concurrently; please retry.");
         }
 
-        return WorkflowTransitionResult.Success(request);
+        var result = WorkflowTransitionResult.Success(request);
+
+        // System-triggered continuations (spec 7.3's "Auto | System" steps —
+        // ai evaluation chain, Excel-on-done) live in a dedicated service
+        // rather than inline here, so this method stays focused on the
+        // state-machine mechanics. See WorkflowAutomationService for why it
+        // takes `this` as a parameter instead of being constructor-injected.
+        return await _automation.RunPostTransitionHooksAsync(
+            this, request, targetStage, actingUserId, actingUserRole, result);
     }
 }

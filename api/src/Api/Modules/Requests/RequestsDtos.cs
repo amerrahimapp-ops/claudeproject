@@ -192,7 +192,8 @@ public static class RequestMapper
                 .ToList());
     }
 
-    private static Dictionary<string, decimal> DeserializeCapacityMap(string? json)
+    /// <summary>Internal (not private) so Api.Modules.Ai's evaluation orchestrator can reuse the same parsing rather than duplicating it.</summary>
+    internal static Dictionary<string, decimal> DeserializeCapacityMap(string? json)
     {
         if (string.IsNullOrWhiteSpace(json))
         {
@@ -203,7 +204,7 @@ public static class RequestMapper
             ?? new Dictionary<string, decimal>();
     }
 
-    private static Dictionary<string, decimal?> DeserializeUpliftMap(string? json)
+    internal static Dictionary<string, decimal?> DeserializeUpliftMap(string? json)
     {
         if (string.IsNullOrWhiteSpace(json))
         {

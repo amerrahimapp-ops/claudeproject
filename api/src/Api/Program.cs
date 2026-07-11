@@ -91,6 +91,7 @@ app.MapEmailEndpoints();
 app.MapGrafanaEndpoints();
 app.MapReportsEndpoints();
 app.MapAiEndpoints();
+app.MapAiInsightsEndpoints();
 app.MapAdminEndpoints();
 
 app.MapGet("/health", async (CapacityDbContext db) =>
