@@ -1,41 +1,81 @@
-import { Button, Card, Typography } from 'antd'
+import { useState } from 'react'
+import { Alert, Button, Card, Form, Input, Typography, message } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/useAuth'
+import { ApiError } from '../api/client'
 
 const { Title, Paragraph } = Typography
 
+interface LoginFormValues {
+  username: string
+  password: string
+}
+
 /**
- * Placeholder login page. Real credential flow (AD via IIdentityProvider)
- * lands in a later phase — this just exercises the AuthContext shape with
- * a mock user so downstream routing/layout can be built against it.
+ * Real sign-in form against POST /api/v1/auth/login (mock AD provider —
+ * any password is accepted for the 4 dev usernames: requestor.dev,
+ * capacitymanager.dev, infrahead.dev, admin).
  */
 export function LoginPage() {
   const { login } = useAuth()
   const navigate = useNavigate()
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const handleMockLogin = () => {
-    login(
-      {
-        id: 'mock-user-1',
-        name: 'Mock Requestor',
-        email: 'mock.requestor@example.com',
-        role: 'Requestor',
-      },
-      'mock-jwt-token',
-    )
-    navigate('/dashboard')
+  const handleFinish = async (values: LoginFormValues) => {
+    setSubmitting(true)
+    setError(null)
+    try {
+      await login(values.username, values.password)
+      navigate('/dashboard')
+    } catch (err) {
+      const description =
+        err instanceof ApiError && err.status === 401
+          ? 'Invalid username or password.'
+          : 'Login failed. Please try again.'
+      setError(description)
+      message.error(description)
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
     <Card style={{ width: 360 }}>
       <Title level={3}>Project Alpha</Title>
       <Paragraph type="secondary">
-        Capacity Request Management System — Phase 5 will replace this with
-        the real sign-in flow.
+        Capacity Request Management System — sign in with a dev username
+        (e.g. <code>requestor.dev</code>); any password works.
       </Paragraph>
-      <Button type="primary" block onClick={handleMockLogin}>
-        Continue with mock session
-      </Button>
+      {error && (
+        <Alert
+          type="error"
+          message={error}
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+      )}
+      <Form layout="vertical" onFinish={handleFinish} disabled={submitting}>
+        <Form.Item
+          label="Username"
+          name="username"
+          rules={[{ required: true, message: 'Username is required' }]}
+        >
+          <Input autoFocus autoComplete="username" />
+        </Form.Item>
+        <Form.Item
+          label="Password"
+          name="password"
+          rules={[{ required: true, message: 'Password is required' }]}
+        >
+          <Input.Password autoComplete="current-password" />
+        </Form.Item>
+        <Form.Item style={{ marginBottom: 0 }}>
+          <Button type="primary" htmlType="submit" block loading={submitting}>
+            Sign in
+          </Button>
+        </Form.Item>
+      </Form>
     </Card>
   )
 }

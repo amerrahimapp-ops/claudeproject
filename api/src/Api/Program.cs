@@ -15,6 +15,17 @@ using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// --- CORS (dev only: the Vite dev server on :5173 calling this API on :5000
+// is itself cross-origin) ---
+const string DevCorsPolicy = "DevCors";
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy(DevCorsPolicy, policy =>
+        policy.WithOrigins("http://localhost:5173")
+            .AllowAnyHeader()
+            .AllowAnyMethod());
+});
+
 // --- Logging (Serilog console sink) ---
 Log.Logger = new LoggerConfiguration()
     .ReadFrom.Configuration(builder.Configuration)
@@ -62,6 +73,11 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+if (app.Environment.IsDevelopment())
+{
+    app.UseCors(DevCorsPolicy);
+}
+
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -89,13 +105,16 @@ app.MapGet("/health", async (CapacityDbContext db) =>
 })
 .WithName("HealthCheck");
 
-// Thin placeholder so the Foundation-phase integration test can exercise
-// the full EF Core + API + MySQL pipeline. Real Requests module logic
-// (filtering, DTOs, request-number generation, etc.) lands in a later phase.
+// List endpoint — not filtered by requestor yet (see CLAUDE.md/phase docs);
+// returns every request, mapped through RequestMapper for the same
+// string-enum shape GET /api/v1/requests/{id} already uses.
 app.MapGet("/api/v1/requests", async (CapacityDbContext db) =>
 {
-    var requests = await db.Requests.AsNoTracking().ToListAsync();
-    return Results.Ok(requests);
+    var requests = await db.Requests
+        .Include(r => r.WorkflowStages)
+        .AsNoTracking()
+        .ToListAsync();
+    return Results.Ok(requests.Select(RequestMapper.ToResponse));
 })
 .WithName("GetRequests")
 .RequireAuthorization();
