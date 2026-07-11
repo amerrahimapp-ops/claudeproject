@@ -9,7 +9,7 @@ import {
   SettingOutlined,
   UnorderedListOutlined,
 } from '@ant-design/icons'
-import { Link, Outlet, useLocation } from 'react-router-dom'
+import { Link, Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/useAuth'
 import type { UserRole } from '../context/authContext'
 
@@ -50,10 +50,26 @@ const NAV_ITEMS: NavItem[] = [
 
 /**
  * Shell for authenticated routes: sidebar + header.
+ *
+ * This is also the session boundary for every route nested under it
+ * (Dashboard, New Request, Reports, Admin, Request Detail, and both
+ * approval queues) — an unauthenticated visitor is redirected to /login
+ * before any of those pages render. Previously only the two RequireRole-
+ * wrapped queue routes had this check (via RequireRole's own isAuthenticated
+ * guard); every other route rendered its shell with no session at all, so a
+ * signed-out user hitting e.g. /dashboard directly saw the full dashboard
+ * chrome with failed (401) API calls instead of being sent to /login. Note
+ * this — like RequireRole — is still only a UX nicety: the real boundary is
+ * server-side (every API endpoint requires a valid JWT; see
+ * RequireRole.tsx's doc comment).
  */
 export function AuthenticatedLayout() {
   const location = useLocation()
-  const { user, role } = useAuth()
+  const { user, role, isAuthenticated } = useAuth()
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />
+  }
 
   const visibleNavItems = NAV_ITEMS.filter(
     (item) => !item.roles || (role !== null && item.roles.includes(role)),

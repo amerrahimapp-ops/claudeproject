@@ -28,7 +28,8 @@ public static class AuthEndpoints
 
             return Results.Ok(response);
         })
-        .WithName("Login");
+        .WithName("Login")
+        .RequireRateLimiting("login");
 
         return app;
     }
