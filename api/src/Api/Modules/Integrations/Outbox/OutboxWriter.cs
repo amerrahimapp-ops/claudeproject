@@ -20,7 +20,7 @@ public class OutboxWriter : IOutboxWriter
         _db = db;
     }
 
-    public async Task EnqueueEmailAsync(string toAddress, string subject, string body, CancellationToken cancellationToken = default)
+    public async Task<int> EnqueueEmailAsync(string toAddress, string subject, string body, CancellationToken cancellationToken = default)
     {
         var payload = new EmailOutboxPayload
         {
@@ -40,5 +40,6 @@ public class OutboxWriter : IOutboxWriter
 
         _db.OutboxMessages.Add(message);
         await _db.SaveChangesAsync(cancellationToken);
+        return message.Id;
     }
 }

@@ -68,16 +68,15 @@ public class OutboxTests : IClassFixture<WebApplicationFactory<Program>>
         const string subject = "Outbox test subject";
         const string body = "Outbox test body";
 
-        await outboxWriter.EnqueueEmailAsync(toAddress, subject, body);
+        // EnqueueEmailAsync returns the new row's id, so this test can find
+        // its own message unambiguously - this table is shared across the
+        // whole [Collection("Integration")] test run (real MySQL, not
+        // per-test isolated), and other tests/background workflow
+        // automation can and do write rows around the same time, so "the
+        // last Email row by Id" is not reliably this test's own row.
+        var pendingId = await outboxWriter.EnqueueEmailAsync(toAddress, subject, body);
 
-        // Payload is a JSON column - Pomelo translates a naive
-        // Payload.Contains(...) filter into a MySQL JSON-cast on the
-        // parameter, which then rejects the plain string. Simplest reliable
-        // way to find "the row we just wrote" is by CreatedAt/Id ordering.
-        var pending = await db.OutboxMessages
-            .Where(m => m.MessageType == "Email")
-            .OrderByDescending(m => m.Id)
-            .FirstAsync();
+        var pending = await db.OutboxMessages.SingleAsync(m => m.Id == pendingId);
 
         Assert.Equal(OutboxMessageStatus.Pending, pending.Status);
         Assert.Equal(0, pending.Attempts);
@@ -106,12 +105,16 @@ public class OutboxTests : IClassFixture<WebApplicationFactory<Program>>
         Assert.NotNull(delivered.ProcessedAt);
 
         // The mock email client is registered as a singleton, so its
-        // captured last-call state proves the processor actually invoked it
-        // (rather than e.g. just flipping the row's status).
+        // captured calls prove the processor actually invoked it (rather
+        // than e.g. just flipping the row's status). Search by this test's
+        // own unique toAddress rather than assuming it's the last call -
+        // OutboxProcessor delivers any Pending row in the shared table, so
+        // another concurrently-running test's email can land in the same
+        // delivery batch.
         var emailClient = Assert.IsType<MockEmailClient>(_factory.Services.GetRequiredService<IEmailClient>());
         Assert.True(emailClient.SentCount > 0);
-        Assert.Equal(toAddress, emailClient.LastToAddress);
-        Assert.Equal(subject, emailClient.LastSubject);
-        Assert.Equal(body, emailClient.LastBody);
+        var call = Assert.Single(emailClient.Calls, c => c.ToAddress == toAddress);
+        Assert.Equal(subject, call.Subject);
+        Assert.Equal(body, call.Body);
     }
 }
