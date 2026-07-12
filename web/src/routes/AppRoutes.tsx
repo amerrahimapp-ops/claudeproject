@@ -46,7 +46,14 @@ export function AppRoutes() {
           }
         />
         <Route path="/reports" element={<ReportsPage />} />
-        <Route path="/admin" element={<AdminPage />} />
+        <Route
+          path="/admin"
+          element={
+            <RequireRole allow={['Admin']}>
+              <AdminPage />
+            </RequireRole>
+          }
+        />
       </Route>
 
       <Route path="/" element={<Navigate to="/dashboard" replace />} />

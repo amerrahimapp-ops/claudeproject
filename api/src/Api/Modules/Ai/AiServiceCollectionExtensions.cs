@@ -24,6 +24,8 @@ public static class AiServiceCollectionExtensions
                 break;
         }
 
+        services.AddScoped<IRequestAiEvaluationService, RequestAiEvaluationService>();
+
         return services;
     }
 }

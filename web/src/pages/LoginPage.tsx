@@ -3,6 +3,7 @@ import { Alert, Button, Card, Form, Input, Typography, message } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/useAuth'
 import { ApiError } from '../api/client'
+import { fetchMyPreferences, resolveDefaultViewRoute } from '../api/preferences'
 
 const { Title, Paragraph } = Typography
 
@@ -26,8 +27,24 @@ export function LoginPage() {
     setSubmitting(true)
     setError(null)
     try {
-      await login(values.username, values.password)
-      navigate('/dashboard')
+      const loggedInUser = await login(values.username, values.password)
+
+      // Respect the user's "default landing page" preference if it can be
+      // fetched — a failure here (e.g. transient network blip right after
+      // login) shouldn't block a successful sign-in, so fall back to the
+      // dashboard rather than surfacing an error.
+      let destination = '/dashboard'
+      try {
+        const preferences = await fetchMyPreferences()
+        destination = resolveDefaultViewRoute(
+          preferences.defaultView,
+          loggedInUser.role,
+        )
+      } catch {
+        // Ignore — destination already defaults to '/dashboard'.
+      }
+
+      navigate(destination)
     } catch (err) {
       const description =
         err instanceof ApiError && err.status === 401

@@ -10,6 +10,7 @@ public static class WorkflowServiceCollectionExtensions
     public static IServiceCollection AddWorkflowModule(this IServiceCollection services)
     {
         services.AddScoped<IWorkflowEngine, WorkflowEngine>();
+        services.AddScoped<IWorkflowAutomationService, WorkflowAutomationService>();
         return services;
     }
 }

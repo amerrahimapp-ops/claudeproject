@@ -1,17 +1,30 @@
 import type { ReactNode } from 'react'
-import { Layout, Menu, Typography, Space, Tag } from 'antd'
+import { Button, Layout, Menu, Typography, Space, Tag, Select, message } from 'antd'
 import {
   CheckSquareOutlined,
   DashboardOutlined,
   FileAddOutlined,
   FileTextOutlined,
+  LogoutOutlined,
   SafetyCertificateOutlined,
   SettingOutlined,
   UnorderedListOutlined,
 } from '@ant-design/icons'
-import { Link, Outlet, useLocation } from 'react-router-dom'
+import { Link, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../context/useAuth'
 import type { UserRole } from '../context/authContext'
+import {
+  fetchMyPreferences,
+  updateMyPreferences,
+  type DefaultView,
+} from '../api/preferences'
+
+const DEFAULT_VIEW_OPTIONS: { value: DefaultView; label: string }[] = [
+  { value: 'Dashboard', label: 'Landing page: Dashboard' },
+  { value: 'NewRequest', label: 'Landing page: New Request' },
+  { value: 'ApprovalQueue', label: 'Landing page: My Approval Queue' },
+]
 
 const { Header, Sider, Content } = Layout
 const { Text } = Typography
@@ -45,15 +58,63 @@ const NAV_ITEMS: NavItem[] = [
     roles: ['InfraHead', 'Admin'],
   },
   { key: '/reports', label: 'Reports', icon: <FileTextOutlined /> },
-  { key: '/admin', label: 'Admin', icon: <SettingOutlined /> },
+  {
+    key: '/admin',
+    label: 'Admin',
+    icon: <SettingOutlined />,
+    roles: ['Admin'],
+  },
 ]
 
 /**
  * Shell for authenticated routes: sidebar + header.
+ *
+ * This is also the session boundary for every route nested under it
+ * (Dashboard, New Request, Reports, Admin, Request Detail, and both
+ * approval queues) — an unauthenticated visitor is redirected to /login
+ * before any of those pages render. Previously only the two RequireRole-
+ * wrapped queue routes had this check (via RequireRole's own isAuthenticated
+ * guard); every other route rendered its shell with no session at all, so a
+ * signed-out user hitting e.g. /dashboard directly saw the full dashboard
+ * chrome with failed (401) API calls instead of being sent to /login. Note
+ * this — like RequireRole — is still only a UX nicety: the real boundary is
+ * server-side (every API endpoint requires a valid JWT; see
+ * RequireRole.tsx's doc comment).
  */
 export function AuthenticatedLayout() {
   const location = useLocation()
-  const { user, role } = useAuth()
+  const navigate = useNavigate()
+  const { user, role, isAuthenticated, logout } = useAuth()
+  const queryClient = useQueryClient()
+
+  const handleLogout = () => {
+    logout()
+    navigate('/login')
+  }
+
+  // "Default landing page after login" preference — see
+  // web/src/api/preferences.ts and api/src/Api/Modules/Auth/MeEndpoints.cs.
+  // Deliberately minimal: one dropdown, no broader settings page.
+  const { data: preferences } = useQuery({
+    queryKey: ['myPreferences'],
+    queryFn: fetchMyPreferences,
+    enabled: isAuthenticated,
+  })
+
+  const updatePreference = useMutation({
+    mutationFn: updateMyPreferences,
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['myPreferences'], updated)
+      message.success('Default landing page updated.')
+    },
+    onError: () => {
+      message.error('Failed to update your preference. Please try again.')
+    },
+  })
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />
+  }
 
   const visibleNavItems = NAV_ITEMS.filter(
     (item) => !item.roles || (role !== null && item.roles.includes(role)),
@@ -104,8 +165,27 @@ export function AuthenticatedLayout() {
             <Text>Capacity Request Management</Text>
           </Space>
           <Space>
+            {user && (
+              <Select<DefaultView>
+                size="small"
+                style={{ width: 210 }}
+                value={preferences?.defaultView ?? 'Dashboard'}
+                loading={updatePreference.isPending}
+                options={DEFAULT_VIEW_OPTIONS}
+                onChange={(value) => updatePreference.mutate(value)}
+              />
+            )}
             <Text type="secondary">{user?.name ?? 'Not signed in'}</Text>
             {user && <Tag>{user.role}</Tag>}
+            {user && (
+              <Button
+                size="small"
+                icon={<LogoutOutlined />}
+                onClick={handleLogout}
+              >
+                Logout
+              </Button>
+            )}
           </Space>
         </Header>
         <Content style={{ padding: 16 }}>

@@ -154,6 +154,9 @@ namespace Api.Data.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("AttachmentPaths")
+                        .HasColumnType("json");
+
                     b.Property<string>("QuestionKey")
                         .IsRequired()
                         .HasMaxLength(255)
@@ -233,6 +236,17 @@ namespace Api.Data.Migrations
                     b.Property<string>("CurrentCapacity")
                         .HasColumnType("json");
 
+                    b.Property<string>("Department")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("EndDate")
+                        .HasColumnType("datetime(6)");
+
                     b.Property<string>("Environment")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -242,6 +256,16 @@ namespace Api.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("varchar(20)");
+
+                    b.Property<string>("ProjectCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<string>("ProjectName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("varchar(200)");
 
                     b.Property<string>("ProjectType")
                         .IsRequired()
@@ -259,10 +283,23 @@ namespace Api.Data.Migrations
                     b.Property<int>("RequestorUserId")
                         .HasColumnType("int");
 
+                    b.Property<string>("Sponsor")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("varchar(200)");
+
+                    b.Property<DateTime>("StartDate")
+                        .HasColumnType("datetime(6)");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("varchar(50)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("varchar(200)");
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("datetime(6)");
@@ -303,9 +340,21 @@ namespace Api.Data.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("varchar(255)");
 
+                    b.Property<string>("IpAddress")
+                        .IsRequired()
+                        .HasMaxLength(45)
+                        .HasColumnType("varchar(45)");
+
+                    b.Property<bool>("IsPhysical")
+                        .HasColumnType("tinyint(1)");
+
                     b.Property<string>("MountPoint")
                         .HasMaxLength(255)
                         .HasColumnType("varchar(255)");
+
+                    b.Property<string>("Os")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
 
                     b.Property<string>("Platform")
                         .IsRequired()
@@ -454,6 +503,9 @@ namespace Api.Data.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("varchar(50)");
 
+                    b.Property<int?>("AssignedUserId")
+                        .HasColumnType("int");
+
                     b.Property<string>("Comments")
                         .HasColumnType("text");
 
@@ -477,6 +529,8 @@ namespace Api.Data.Migrations
                         .HasColumnType("varchar(20)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("AssignedUserId");
 
                     b.HasIndex("RequestId");
 
@@ -570,11 +624,18 @@ namespace Api.Data.Migrations
 
             modelBuilder.Entity("Api.Data.Entities.WorkflowStage", b =>
                 {
+                    b.HasOne("Api.Data.Entities.User", "AssignedUser")
+                        .WithMany()
+                        .HasForeignKey("AssignedUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Api.Data.Entities.Request", "Request")
                         .WithMany("WorkflowStages")
                         .HasForeignKey("RequestId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("AssignedUser");
 
                     b.Navigation("Request");
                 });

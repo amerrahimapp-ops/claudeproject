@@ -42,6 +42,8 @@ public static class IntegrationsServiceCollectionExtensions
                 break;
         }
 
+        services.AddScoped<IGrafanaUtilizationService, GrafanaUtilizationService>();
+
         return services;
     }
 }

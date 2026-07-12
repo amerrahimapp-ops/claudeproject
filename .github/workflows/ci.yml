@@ -76,24 +76,80 @@ jobs:
   playwright:
     runs-on: ubuntu-latest
     needs: [dotnet, web]
+    # Own MySQL service, isolated from the dotnet job's - each job runs on a
+    # separate runner with its own service containers, so this suite starts
+    # from a clean database (migrated + dev users/workflow config seeded by
+    # Program.cs on startup, same as any Development run) rather than
+    # inheriting state from the dotnet job's test run.
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: capacity_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
           cache-dependency-path: web/package-lock.json
-      - name: Install
+      - name: Install web dependencies
         working-directory: web
         run: npm ci
-      # Step-level if: (valid here, unlike job-level if:, since checkout has
-      # already run by this point) - Playwright tests land in Phase 5/6.
-      # These steps skip cleanly until web/playwright.config.ts exists.
       - name: Install Playwright browsers
-        if: ${{ hashFiles('web/playwright.config.ts') != '' }}
         working-directory: web
         run: npx playwright install --with-deps chromium
+      # Runs the real API in the background so the suite (which drives the
+      # actual login/workflow/report endpoints, not mocks) has something to
+      # talk to. Playwright's own webServer block (playwright.config.ts)
+      # starts the web dev server when `npx playwright test` runs below, so
+      # only the API needs to be started explicitly here.
+      - name: Start API
+        working-directory: api
+        env:
+          ConnectionStrings__CapacityDb: "Server=127.0.0.1;Port=3306;Database=capacity_test;User=root;Password=root;"
+          # CI-only test signing key - see the identical comment on the
+          # dotnet job above; not a production secret.
+          Jwt__SigningKey: "ci-test-only-signing-key-not-for-production-use-0123456789"
+          ASPNETCORE_ENVIRONMENT: Development
+          ASPNETCORE_URLS: "http://localhost:5000"
+        run: |
+          nohup dotnet run --project src/Api/Api.csproj --no-launch-profile > api.log 2>&1 &
+          echo "Started API in background (PID $!)"
+      - name: Wait for API health check
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:5000/health > /dev/null; then
+              echo "API is healthy after ${i} attempt(s)."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "API did not become healthy in time - dumping log:" >&2
+          cat api/api.log >&2 || true
+          exit 1
       - name: Run Playwright suite
-        if: ${{ hashFiles('web/playwright.config.ts') != '' }}
         working-directory: web
         run: npx playwright test
+      - name: Dump API log on failure
+        if: failure()
+        run: cat api/api.log || true
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: web/playwright-report/
+          retention-days: 7
+          if-no-files-found: ignore

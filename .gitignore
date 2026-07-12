@@ -5,6 +5,10 @@ obj/
 appsettings.Development.json
 appsettings.*.local.json
 
+# Auto-generated Excel reports (Phase 7b, WorkflowAutomationService) —
+# runtime output on local disk, not source.
+api/src/Api/generated-reports/
+
 # Node / React
 node_modules/
 dist/
