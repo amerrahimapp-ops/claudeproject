@@ -8,6 +8,7 @@ import { InfraApprovalQueuePage } from '../pages/InfraApprovalQueuePage'
 import { LoginPage } from '../pages/LoginPage'
 import { NewRequestPage } from '../pages/NewRequestPage'
 import { NotFoundPage } from '../pages/NotFoundPage'
+import { ProfilePage } from '../pages/ProfilePage'
 import { ReportsPage } from '../pages/ReportsPage'
 import { RequestDetailPage } from '../pages/RequestDetailPage'
 import { RequireRole } from './RequireRole'
@@ -46,6 +47,7 @@ export function AppRoutes() {
           }
         />
         <Route path="/reports" element={<ReportsPage />} />
+        <Route path="/profile" element={<ProfilePage />} />
         <Route
           path="/admin"
           element={

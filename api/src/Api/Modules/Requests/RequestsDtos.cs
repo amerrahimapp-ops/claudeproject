@@ -121,12 +121,30 @@ public record RequestResponse(
     DateTime UpdatedAt,
     IReadOnlyList<RequestServerResponse> Servers,
     IReadOnlyList<JustificationResponse> Justifications,
-    IReadOnlyList<WorkflowStageResponse> WorkflowStages);
+    IReadOnlyList<WorkflowStageResponse> WorkflowStages,
+    /// <summary>
+    /// 1-based position among other requests currently sitting in the same
+    /// human-reviewed stage (spec 6.3), oldest-waiting-first. Null whenever
+    /// not applicable (any stage other than CapacityReview/InfraApproval) —
+    /// only <c>GET /api/v1/requests/{id}</c> computes this (see
+    /// RequestsEndpoints.cs); every other caller of RequestMapper.ToResponse
+    /// leaves it null.
+    /// </summary>
+    int? QueuePosition = null);
+
+/// <summary>User-uploaded (or system-generated, e.g. Phase 7b's Excel report) file attached to a request.</summary>
+public record AttachmentResponse(
+    int Id,
+    string FileName,
+    string ContentType,
+    int UploadedByUserId,
+    string UploadedByDisplayName,
+    DateTime UploadedAt);
 
 /// <summary>Single place that maps the Request entity graph to its API shape (also used by the Workflow module).</summary>
 public static class RequestMapper
 {
-    public static RequestResponse ToResponse(Request request)
+    public static RequestResponse ToResponse(Request request, int? queuePosition = null)
     {
         var current = DeserializeCapacityMap(request.CurrentCapacity);
         var requested = DeserializeCapacityMap(request.RequestedCapacity);
@@ -189,8 +207,18 @@ public static class RequestMapper
                 .Select(ws => new WorkflowStageResponse(
                     ws.Id, ws.StageName, ws.Status.ToString(), ws.AssignedRole, ws.AssignedUserId,
                     ws.StartedAt, ws.CompletedAt, ws.Comments))
-                .ToList());
+                .ToList(),
+            queuePosition);
     }
+
+    public static AttachmentResponse ToAttachmentResponse(Attachment attachment) =>
+        new(
+            attachment.Id,
+            attachment.FileName,
+            attachment.ContentType,
+            attachment.UploadedByUserId,
+            attachment.UploadedByUser.DisplayName,
+            attachment.UploadedAt);
 
     /// <summary>Internal (not private) so Api.Modules.Ai's evaluation orchestrator can reuse the same parsing rather than duplicating it.</summary>
     internal static Dictionary<string, decimal> DeserializeCapacityMap(string? json)

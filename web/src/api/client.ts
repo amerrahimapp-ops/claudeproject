@@ -103,3 +103,29 @@ export async function apiFetchBlob(
 
   return response.blob()
 }
+
+/**
+ * Same auth-header injection as apiFetch, but for a multipart/form-data
+ * body (file uploads) — deliberately does NOT set Content-Type, since the
+ * browser must set it itself with the multipart boundary parameter; setting
+ * it manually would break the parse on the server.
+ */
+export async function apiFetchFormData<T = unknown>(
+  path: string,
+  formData: FormData,
+): Promise<T> {
+  const headers = buildAuthHeaders()
+
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  })
+
+  if (!response.ok) {
+    const message = await response.text().catch(() => '')
+    throw new ApiError(response.status, message || response.statusText)
+  }
+
+  return (await response.json()) as T
+}

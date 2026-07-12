@@ -7,5 +7,9 @@ namespace Api.Modules.Integrations.Outbox;
 /// </summary>
 public interface IOutboxWriter
 {
-    Task EnqueueEmailAsync(string toAddress, string subject, string body, CancellationToken cancellationToken = default);
+    /// <summary>Enqueues an email and returns the new OutboxMessage's id — lets a caller
+    /// (e.g. a test) unambiguously find its own row later instead of guessing via
+    /// ordering, which is unreliable once more than one write can land in the table
+    /// around the same time.</summary>
+    Task<int> EnqueueEmailAsync(string toAddress, string subject, string body, CancellationToken cancellationToken = default);
 }

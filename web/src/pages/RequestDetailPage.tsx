@@ -6,19 +6,27 @@ import {
   Card,
   Descriptions,
   Empty,
+  List,
   Skeleton,
   Space,
   Table,
   Tag,
   Timeline,
   Typography,
+  Upload,
   message,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { DownloadOutlined } from '@ant-design/icons'
+import type { UploadRequestOption } from 'rc-upload/lib/interface'
+import { DownloadOutlined, InboxOutlined } from '@ant-design/icons'
 import { useParams } from 'react-router-dom'
 import { apiFetch, apiFetchBlob, ApiError } from '../api/client'
-import { transitionRequest } from '../api/requests'
+import {
+  fetchAttachments,
+  transitionRequest,
+  uploadAttachment,
+  type Attachment,
+} from '../api/requests'
 import { useAuth } from '../context/useAuth'
 
 const { Title, Text } = Typography
@@ -100,6 +108,13 @@ interface RequestDetail {
   createdAt: string
   updatedAt: string
   workflowStages: WorkflowStage[]
+  /**
+   * 1-based position among other requests currently waiting in the same
+   * human-reviewed stage (spec 6.3), oldest-first — null whenever the
+   * request isn't in CapacityReview/InfraApproval (see RequestMapper.cs /
+   * RequestsEndpoints.cs's GET /api/v1/requests/{id}).
+   */
+  queuePosition: number | null
 }
 
 const STAGE_COLORS: Record<string, string> = {
@@ -108,6 +123,12 @@ const STAGE_COLORS: Record<string, string> = {
   Approved: 'green',
   Rejected: 'red',
   Deferred: 'orange',
+}
+
+/** Human-readable label for the two stages a queue position is ever shown for (spec 6.3). */
+const QUEUE_STAGE_LABELS: Record<string, string> = {
+  CapacityReview: 'Capacity Review',
+  InfraApproval: 'Infra Approval',
 }
 
 function formatDate(value: string | null): string {
@@ -145,6 +166,16 @@ export function RequestDetailPage() {
   const isOwnerOrAdmin =
     role === 'Admin' ||
     (data !== undefined && user?.id === data.requestorUsername)
+
+  // Uploading is only offered while the request is still "editable-ish" —
+  // Draft (not yet submitted) or Submitted (mid-cascade / just submitted).
+  // Later stages are under active review, so attaching new evidence there
+  // would be surprising rather than useful; this is a UI nicety, not a hard
+  // security boundary (the backend's owner-or-Admin check is the real gate).
+  const canUploadAttachment =
+    isOwnerOrAdmin &&
+    data !== undefined &&
+    (data.status === 'Draft' || data.status === 'Submitted')
 
   const transition = useMutation({
     mutationFn: ({
@@ -196,6 +227,48 @@ export function RequestDetailPage() {
       )
     } finally {
       setDownloading(false)
+    }
+  }
+
+  const { data: attachments, isLoading: attachmentsLoading } = useQuery({
+    queryKey: ['requestAttachments', id],
+    queryFn: () => fetchAttachments(Number(id)),
+    enabled: Boolean(id),
+  })
+
+  const uploadMutation = useMutation({
+    mutationFn: (file: File) => uploadAttachment(Number(id), file),
+    onSuccess: async () => {
+      message.success('Attachment uploaded.')
+      await queryClient.invalidateQueries({ queryKey: ['requestAttachments', id] })
+    },
+    onError: (err: unknown) => {
+      message.error(
+        err instanceof ApiError
+          ? err.message || 'Failed to upload attachment.'
+          : 'Failed to upload attachment.',
+      )
+    },
+  })
+
+  const handleDownloadAttachment = async (attachment: Attachment) => {
+    if (!id) return
+    try {
+      const blob = await apiFetchBlob(`/api/v1/requests/${id}/attachments/${attachment.id}`)
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = attachment.fileName
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      message.error(
+        err instanceof ApiError
+          ? `Failed to download attachment: ${err.message || err.status}`
+          : 'Failed to download attachment.',
+      )
     }
   }
 
@@ -312,6 +385,17 @@ export function RequestDetailPage() {
           )}
         </Descriptions>
       </Card>
+
+      {isOwnerOrAdmin &&
+        data.queuePosition !== null &&
+        QUEUE_STAGE_LABELS[data.status] && (
+          <Alert
+            style={{ marginBottom: 16 }}
+            type="info"
+            showIcon
+            message={`You are #${data.queuePosition} waiting for ${QUEUE_STAGE_LABELS[data.status]}.`}
+          />
+        )}
 
       <Card title="Workflow History">
         {data.workflowStages.length === 0 ? (
@@ -444,6 +528,64 @@ export function RequestDetailPage() {
             )}
           </Space>
         )}
+      </Card>
+
+      <Card title="Attachments" style={{ marginTop: 16 }}>
+        <Space direction="vertical" style={{ width: '100%' }} size="middle">
+          {canUploadAttachment && (
+            <Upload.Dragger
+              multiple={false}
+              showUploadList={false}
+              disabled={uploadMutation.isPending}
+              customRequest={(options: UploadRequestOption) => {
+                uploadMutation.mutate(options.file as File, {
+                  onSuccess: (attachment) => options.onSuccess?.(attachment),
+                  onError: (err) => options.onError?.(err as Error),
+                })
+              }}
+            >
+              <p className="ant-upload-drag-icon">
+                <InboxOutlined />
+              </p>
+              <p className="ant-upload-text">Click or drag a file to upload</p>
+              <p className="ant-upload-hint">pdf, xlsx, docx, png, jpg, txt — up to 10MB.</p>
+            </Upload.Dragger>
+          )}
+
+          {attachmentsLoading ? (
+            <Skeleton active paragraph={{ rows: 2 }} />
+          ) : attachments && attachments.length > 0 ? (
+            <List
+              size="small"
+              dataSource={attachments}
+              renderItem={(attachment) => (
+                <List.Item
+                  key={attachment.id}
+                  actions={[
+                    <Button
+                      key="download"
+                      type="link"
+                      icon={<DownloadOutlined />}
+                      onClick={() => handleDownloadAttachment(attachment)}
+                    >
+                      Download
+                    </Button>,
+                  ]}
+                >
+                  <List.Item.Meta
+                    title={attachment.fileName}
+                    description={`Uploaded by ${attachment.uploadedByDisplayName} · ${formatDate(attachment.uploadedAt)}`}
+                  />
+                </List.Item>
+              )}
+            />
+          ) : (
+            <Empty
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description="No attachments yet."
+            />
+          )}
+        </Space>
       </Card>
     </>
   )

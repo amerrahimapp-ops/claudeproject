@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Text.Json;
 using Api.Data;
 using Api.Data.Entities;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 namespace Api.Modules.Requests;
@@ -21,6 +22,22 @@ public static class RequestsEndpoints
 
     private static readonly IReadOnlyList<string> ValidPlatforms =
         Enum.GetNames<Platform>();
+
+    /// <summary>
+    /// Stages a human is actually waiting to review (spec 6.3) — a queue
+    /// position is only meaningful here. Draft/Submitted aren't submitted-
+    /// for-review yet, and AiEvaluation/AiReviewed are system-automatic and
+    /// settle in seconds (WorkflowAutomationService's cascade), so a queue
+    /// position for those would be noise, not a transparency feature.
+    /// </summary>
+    private static readonly HashSet<RequestStatus> QueuedStages =
+        [RequestStatus.CapacityReview, RequestStatus.InfraApproval];
+
+    /// <summary>Extension allowlist for user-uploaded attachments — proportional to a capacity-request tool, not a general file store.</summary>
+    private static readonly HashSet<string> AllowedAttachmentExtensions =
+        new(StringComparer.OrdinalIgnoreCase) { "pdf", "xlsx", "docx", "png", "jpg", "jpeg", "txt" };
+
+    private const long MaxAttachmentSizeBytes = 10 * 1024 * 1024;
 
     public static IEndpointRouteBuilder MapRequestsEndpoints(this IEndpointRouteBuilder app)
     {
@@ -156,11 +173,162 @@ public static class RequestsEndpoints
                 .AsNoTracking()
                 .FirstOrDefaultAsync(r => r.Id == id);
 
-            return request is null
-                ? Results.NotFound()
-                : Results.Ok(RequestMapper.ToResponse(request));
+            if (request is null)
+            {
+                return Results.NotFound();
+            }
+
+            int? queuePosition = null;
+            if (QueuedStages.Contains(request.Status))
+            {
+                // Position = 1 + how many other requests are in the same
+                // stage and have been waiting longer. UpdatedAt is bumped by
+                // WorkflowEngine.TransitionAsync on every status change, so
+                // for a request currently sitting in a stage it's the time it
+                // entered that stage (see RequestSummary in web/src/api/requests.ts
+                // for the same reasoning) — a simple proxy for
+                // WorkflowStages.StartedAt that avoids an extra join, which is
+                // proportional for a transparency nicety, not a precise SLA system.
+                var othersAhead = await db.Requests
+                    .Where(r => r.Status == request.Status && r.Id != request.Id && r.UpdatedAt < request.UpdatedAt)
+                    .CountAsync();
+                queuePosition = othersAhead + 1;
+            }
+
+            return Results.Ok(RequestMapper.ToResponse(request, queuePosition));
         })
         .WithName("GetRequestById")
+        .RequireAuthorization();
+
+        // ---------------------------------------------------------------
+        // Attachments (spec — user-uploaded files on a request). The
+        // Attachment entity already exists and is used by Phase 7b's
+        // auto-generated Excel reports (WorkflowAutomationService); these
+        // three endpoints add the user-facing upload/list/download path.
+        // ---------------------------------------------------------------
+
+        app.MapPost("/api/v1/requests/{id:int}/attachments", async (
+            int id,
+            [FromForm] IFormFile file,
+            ClaimsPrincipal user,
+            CapacityDbContext db,
+            IWebHostEnvironment environment) =>
+        {
+            var request = await db.Requests.FirstOrDefaultAsync(r => r.Id == id);
+            if (request is null)
+            {
+                return Results.NotFound();
+            }
+
+            var actingUserId = int.Parse(user.FindFirstValue("user_id")!);
+            var actingUserRole = Enum.Parse<UserRole>(user.FindFirstValue(ClaimTypes.Role)!);
+
+            // Same "owner or Admin" idiom as WorkflowEngine's authorization
+            // check — nothing else in this codebase gates by role/ownership
+            // differently.
+            if (actingUserRole != UserRole.Admin && actingUserId != request.RequestorUserId)
+            {
+                return Results.Json(
+                    new { error = "Only the request's owner or an Admin may upload attachments." },
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+
+            if (file is null || file.Length == 0)
+            {
+                return Results.BadRequest(new { error = "A non-empty file is required." });
+            }
+
+            if (file.Length > MaxAttachmentSizeBytes)
+            {
+                return Results.BadRequest(new { error = "File exceeds the 10MB size limit." });
+            }
+
+            var extension = Path.GetExtension(file.FileName).TrimStart('.');
+            if (string.IsNullOrEmpty(extension) || !AllowedAttachmentExtensions.Contains(extension))
+            {
+                return Results.BadRequest(new { error = $"File type \".{extension}\" is not allowed." });
+            }
+
+            // Plain filesystem storage under the API's content root, same
+            // pattern as WorkflowAutomationService's generated-reports (see
+            // GenerateAndStoreReportAsync) — this repo has no blob storage
+            // and Phase 1 scale doesn't warrant one. Namespaced per request
+            // and prefixed with a GUID so two uploads of the same filename
+            // never collide.
+            var directory = Path.Combine(environment.ContentRootPath, "request-attachments", id.ToString());
+            Directory.CreateDirectory(directory);
+
+            var safeFileName = Path.GetFileName(file.FileName);
+            var storedFileName = $"{Guid.NewGuid():N}-{safeFileName}";
+            var fullPath = Path.Combine(directory, storedFileName);
+
+            await using (var stream = File.Create(fullPath))
+            {
+                await file.CopyToAsync(stream);
+            }
+
+            var attachment = new Attachment
+            {
+                RequestId = id,
+                FileName = safeFileName,
+                StoragePath = fullPath,
+                ContentType = string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType,
+                UploadedByUserId = actingUserId,
+                UploadedAt = DateTime.UtcNow,
+            };
+            db.Attachments.Add(attachment);
+            await db.SaveChangesAsync();
+
+            // Reload the uploader's display name for the response shape
+            // without a second round trip: the acting user is already known
+            // to exist (JWT-authenticated), so fetch it once for the mapper.
+            var uploader = await db.Users.AsNoTracking().FirstAsync(u => u.Id == actingUserId);
+            attachment.UploadedByUser = uploader;
+
+            return Results.Created(
+                $"/api/v1/requests/{id}/attachments/{attachment.Id}",
+                RequestMapper.ToAttachmentResponse(attachment));
+        })
+        .WithName("UploadRequestAttachment")
+        .RequireAuthorization()
+        .DisableAntiforgery();
+
+        app.MapGet("/api/v1/requests/{id:int}/attachments", async (int id, CapacityDbContext db) =>
+        {
+            var requestExists = await db.Requests.AnyAsync(r => r.Id == id);
+            if (!requestExists)
+            {
+                return Results.NotFound();
+            }
+
+            var attachments = await db.Attachments
+                .Where(a => a.RequestId == id)
+                .Include(a => a.UploadedByUser)
+                .OrderByDescending(a => a.UploadedAt)
+                .AsNoTracking()
+                .ToListAsync();
+
+            return Results.Ok(attachments.Select(RequestMapper.ToAttachmentResponse));
+        })
+        .WithName("GetRequestAttachments")
+        .RequireAuthorization();
+
+        app.MapGet("/api/v1/requests/{id:int}/attachments/{attachmentId:int}", async (
+            int id, int attachmentId, CapacityDbContext db) =>
+        {
+            var attachment = await db.Attachments
+                .AsNoTracking()
+                .FirstOrDefaultAsync(a => a.Id == attachmentId && a.RequestId == id);
+
+            if (attachment is null || !File.Exists(attachment.StoragePath))
+            {
+                return Results.NotFound();
+            }
+
+            var bytes = await File.ReadAllBytesAsync(attachment.StoragePath);
+            return Results.File(bytes, attachment.ContentType, attachment.FileName);
+        })
+        .WithName("DownloadRequestAttachment")
         .RequireAuthorization();
 
         return app;

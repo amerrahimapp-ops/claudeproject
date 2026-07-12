@@ -9,6 +9,7 @@ import {
   SafetyCertificateOutlined,
   SettingOutlined,
   UnorderedListOutlined,
+  UserOutlined,
 } from '@ant-design/icons'
 import { Link, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -172,11 +173,18 @@ export function AuthenticatedLayout() {
                 value={preferences?.defaultView ?? 'Dashboard'}
                 loading={updatePreference.isPending}
                 options={DEFAULT_VIEW_OPTIONS}
-                onChange={(value) => updatePreference.mutate(value)}
+                onChange={(value) => updatePreference.mutate({ defaultView: value })}
               />
             )}
             <Text type="secondary">{user?.name ?? 'Not signed in'}</Text>
             {user && <Tag>{user.role}</Tag>}
+            {user && (
+              <Link to="/profile">
+                <Button size="small" icon={<UserOutlined />}>
+                  Profile
+                </Button>
+              </Link>
+            )}
             {user && (
               <Button
                 size="small"

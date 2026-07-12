@@ -8,9 +8,14 @@ import { theme, type ThemeConfig } from 'antd'
  * - Dense, functional layout — not spacious/marketing-style.
  * - Single accent color, flat surfaces.
  * - No gradients, no heavy shadows, no animations.
+ *
+ * Light and dark share every token except the algorithm — this is
+ * deliberately just an algorithm swap (theme.darkAlgorithm vs.
+ * theme.defaultAlgorithm), not a redesign of the visual language. See
+ * `resolveAppTheme` / `web/src/App.tsx` for how the user's saved `theme`
+ * preference (GET /api/v1/me/preferences) picks between the two.
  */
-export const appTheme: ThemeConfig = {
-  algorithm: theme.darkAlgorithm,
+const sharedTokens: ThemeConfig = {
   token: {
     colorPrimary: '#1677ff',
     borderRadius: 2,
@@ -29,3 +34,16 @@ export const appTheme: ThemeConfig = {
     },
   },
 }
+
+export const darkTheme: ThemeConfig = {
+  ...sharedTokens,
+  algorithm: theme.darkAlgorithm,
+}
+
+export const lightTheme: ThemeConfig = {
+  ...sharedTokens,
+  algorithm: theme.defaultAlgorithm,
+}
+
+/** Back-compat alias — dark remains the app's default theme. */
+export const appTheme: ThemeConfig = darkTheme

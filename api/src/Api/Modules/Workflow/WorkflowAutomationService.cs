@@ -1,6 +1,7 @@
 using Api.Data;
 using Api.Data.Entities;
 using Api.Modules.Ai;
+using Api.Modules.Notifications;
 using Api.Modules.Reports;
 using Microsoft.EntityFrameworkCore;
 
@@ -14,6 +15,10 @@ public interface IWorkflowAutomationService
     /// result that should ultimately be handed back to the original caller
     /// (reflecting the request's *final* state after any further automatic
     /// transitions, not just the one that was directly requested).
+    /// <paramref name="origin"/> is this cascade's true starting status/comment
+    /// (see <see cref="WorkflowCascadeOrigin"/>) - used to notify the
+    /// requestor/next-role exactly once, when the cascade actually settles,
+    /// rather than once per intermediate automatic hop.
     /// </summary>
     Task<WorkflowTransitionResult> RunPostTransitionHooksAsync(
         IWorkflowEngine engine,
@@ -22,6 +27,7 @@ public interface IWorkflowAutomationService
         int actingUserId,
         UserRole actingUserRole,
         WorkflowTransitionResult currentResult,
+        WorkflowCascadeOrigin origin,
         CancellationToken cancellationToken = default);
 }
 
@@ -49,6 +55,15 @@ public interface IWorkflowAutomationService
 ///   - done -&gt; generate the Excel report and persist it as an Attachment
 ///     (the on-demand GET .../report endpoint is untouched and keeps
 ///     regenerating fresh on request; this is an additional side effect).
+///
+/// Also owns dispatching the Phase 8b workflow notifications (spec 4.4/
+/// 10.5) once a transition (or cascade of transitions) truly settles: an
+/// email to the request's owner noting the new status, and - if the settled
+/// stage's WorkflowConfig has a RequiredRole - an email to every user with
+/// that role noting a new task is waiting. "Settles" deliberately excludes
+/// the submitted/ai_evaluation-success hops of the automatic cascade (see
+/// the switch below and phase-8b-status.md) so one Submit click fires one
+/// email, not three.
 /// </summary>
 public class WorkflowAutomationService : IWorkflowAutomationService
 {
@@ -56,6 +71,7 @@ public class WorkflowAutomationService : IWorkflowAutomationService
 
     private readonly IRequestAiEvaluationService _aiEvaluationService;
     private readonly IReportGenerator _reportGenerator;
+    private readonly INotificationService _notificationService;
     private readonly CapacityDbContext _db;
     private readonly IWebHostEnvironment _environment;
     private readonly ILogger<WorkflowAutomationService> _logger;
@@ -63,12 +79,14 @@ public class WorkflowAutomationService : IWorkflowAutomationService
     public WorkflowAutomationService(
         IRequestAiEvaluationService aiEvaluationService,
         IReportGenerator reportGenerator,
+        INotificationService notificationService,
         CapacityDbContext db,
         IWebHostEnvironment environment,
         ILogger<WorkflowAutomationService> logger)
     {
         _aiEvaluationService = aiEvaluationService;
         _reportGenerator = reportGenerator;
+        _notificationService = notificationService;
         _db = db;
         _environment = environment;
         _logger = logger;
@@ -81,12 +99,15 @@ public class WorkflowAutomationService : IWorkflowAutomationService
         int actingUserId,
         UserRole actingUserRole,
         WorkflowTransitionResult currentResult,
+        WorkflowCascadeOrigin origin,
         CancellationToken cancellationToken = default)
     {
         switch (targetStage)
         {
             case "submitted":
-                return await AdvanceAsync(engine, request.Id, "ai_evaluation", actingUserId, actingUserRole, currentResult, cancellationToken);
+                // Always cascades straight into ai_evaluation within the
+                // same call - never a settled state, so no notification here.
+                return await AdvanceAsync(engine, request.Id, "ai_evaluation", actingUserId, actingUserRole, currentResult, origin, cancellationToken);
 
             case "ai_evaluation":
                 var evalResult = await _aiEvaluationService.EvaluateAndPersistAsync(request, cancellationToken);
@@ -96,17 +117,52 @@ public class WorkflowAutomationService : IWorkflowAutomationService
                         "AI evaluation failed for request {RequestId}; leaving it at ai_evaluation for manual " +
                         "follow-up rather than silently losing the request: {Error}",
                         request.Id, evalResult.ErrorMessage);
+                    // Unlike the success path, this does NOT cascade further -
+                    // the request is genuinely stuck here, which is exactly
+                    // the kind of real state change the requestor should
+                    // hear about.
+                    await NotifySettledTransitionAsync(request, targetStage, origin, cancellationToken);
                     return currentResult;
                 }
 
-                return await AdvanceAsync(engine, request.Id, "ai_reviewed", actingUserId, actingUserRole, currentResult, cancellationToken);
+                return await AdvanceAsync(engine, request.Id, "ai_reviewed", actingUserId, actingUserRole, currentResult, origin, cancellationToken);
 
             case "done":
                 await GenerateAndStoreReportAsync(request, actingUserId, cancellationToken);
+                await NotifySettledTransitionAsync(request, targetStage, origin, cancellationToken);
                 return currentResult;
 
             default:
+                // Every other reachable target (ai_reviewed, capacity_review,
+                // infra_approval, rejected, deferred) has no further
+                // automation queued behind it, so it's always a settled state.
+                await NotifySettledTransitionAsync(request, targetStage, origin, cancellationToken);
                 return currentResult;
+        }
+    }
+
+    /// <summary>
+    /// Notifies the request's owner that the cascade settled at
+    /// <paramref name="settledStage"/> (reporting <paramref name="origin"/>'s
+    /// pre-cascade status/comment, not this hop's own), and - if
+    /// <paramref name="settledStage"/>'s WorkflowConfig names a RequiredRole -
+    /// notifies every user with that role that a new task is waiting.
+    /// </summary>
+    private async Task NotifySettledTransitionAsync(
+        Request request, string settledStage, WorkflowCascadeOrigin origin, CancellationToken cancellationToken)
+    {
+        var newStatus = settledStage.ToRequestStatus();
+        await _notificationService.NotifyRequestStatusChangedAsync(
+            request, origin.OldStatus, newStatus, origin.Comments, cancellationToken);
+
+        var settledConfig = await _db.WorkflowConfigs
+            .AsNoTracking()
+            .FirstOrDefaultAsync(c => c.StageName == settledStage, cancellationToken);
+
+        if (settledConfig?.RequiredRole is not null)
+        {
+            await _notificationService.NotifyRoleOfNewTaskAsync(
+                request, settledStage, settledConfig.RequiredRole, origin.Comments, cancellationToken);
         }
     }
 
@@ -117,9 +173,10 @@ public class WorkflowAutomationService : IWorkflowAutomationService
         int actingUserId,
         UserRole actingUserRole,
         WorkflowTransitionResult fallback,
+        WorkflowCascadeOrigin origin,
         CancellationToken cancellationToken)
     {
-        var result = await engine.TransitionAsync(requestId, nextStage, actingUserId, actingUserRole, AutoTransitionComments);
+        var result = await engine.TransitionAsync(requestId, nextStage, actingUserId, actingUserRole, AutoTransitionComments, origin);
         if (result.Outcome != WorkflowTransitionOutcome.Success)
         {
             // Should not happen in practice (workflow_config allows every

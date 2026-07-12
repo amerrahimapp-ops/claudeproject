@@ -129,7 +129,7 @@ app.MapGet("/api/v1/requests", async (ClaimsPrincipal user, CapacityDbContext db
     }
 
     var requests = await query.ToListAsync();
-    return Results.Ok(requests.Select(RequestMapper.ToResponse));
+    return Results.Ok(requests.Select(r => RequestMapper.ToResponse(r)));
 })
 .WithName("GetRequests")
 .RequireAuthorization();

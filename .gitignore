@@ -9,6 +9,10 @@ appsettings.*.local.json
 # runtime output on local disk, not source.
 api/src/Api/generated-reports/
 
+# User-uploaded request attachments (Phase 8c, RequestsEndpoints) —
+# runtime output on local disk, not source.
+api/src/Api/request-attachments/
+
 # Node / React
 node_modules/
 dist/
