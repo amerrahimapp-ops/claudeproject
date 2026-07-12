@@ -1,4 +1,4 @@
-import { apiFetch } from './client'
+import { apiFetch, apiFetchFormData } from './client'
 
 /** Mirrors `RequestStatus` in api/src/Api.Data/Entities/Enums.cs. */
 export type RequestStatusName =
@@ -122,4 +122,33 @@ export async function transitionRequest(
       comments: comments?.trim() ? comments.trim() : undefined,
     }),
   })
+}
+
+// ---------------------------------------------------------------------
+// Attachments (Phase 8c) — mirrors AttachmentResponse in
+// api/src/Api/Modules/Requests/RequestsDtos.cs.
+// ---------------------------------------------------------------------
+
+export interface Attachment {
+  id: number
+  fileName: string
+  contentType: string
+  uploadedByUserId: number
+  uploadedByDisplayName: string
+  uploadedAt: string
+}
+
+/** GET /api/v1/requests/{id}/attachments — any authenticated user who can already view the request. */
+export async function fetchAttachments(requestId: number): Promise<Attachment[]> {
+  return apiFetch<Attachment[]>(`/api/v1/requests/${requestId}/attachments`)
+}
+
+/** POST /api/v1/requests/{id}/attachments — owner or Admin only (enforced server-side). */
+export async function uploadAttachment(
+  requestId: number,
+  file: File,
+): Promise<Attachment> {
+  const formData = new FormData()
+  formData.append('file', file)
+  return apiFetchFormData<Attachment>(`/api/v1/requests/${requestId}/attachments`, formData)
 }
