@@ -7,8 +7,16 @@ namespace Api.Modules.Workflow;
 
 public interface IWorkflowEngine
 {
+    /// <summary>
+    /// <paramref name="cascadeOrigin"/> is internal plumbing: leave it null
+    /// for every real caller (HTTP endpoint, tests). WorkflowAutomationService
+    /// supplies it when recursively driving an automatic cascade so the
+    /// eventual settled-stage notification reports the cascade's true
+    /// starting status/comment rather than an intermediate hop's own.
+    /// </summary>
     Task<WorkflowTransitionResult> TransitionAsync(
-        int requestId, string targetStage, int actingUserId, UserRole actingUserRole, string? comments);
+        int requestId, string targetStage, int actingUserId, UserRole actingUserRole, string? comments,
+        WorkflowCascadeOrigin? cascadeOrigin = null);
 }
 
 /// <summary>
@@ -33,7 +41,8 @@ public class WorkflowEngine : IWorkflowEngine
     }
 
     public async Task<WorkflowTransitionResult> TransitionAsync(
-        int requestId, string targetStage, int actingUserId, UserRole actingUserRole, string? comments)
+        int requestId, string targetStage, int actingUserId, UserRole actingUserRole, string? comments,
+        WorkflowCascadeOrigin? cascadeOrigin = null)
     {
         var request = await _db.Requests
             .Include(r => r.RequestorUser)
@@ -199,12 +208,23 @@ public class WorkflowEngine : IWorkflowEngine
 
         var result = WorkflowTransitionResult.Success(request);
 
+        // The first time this method is entered for a given user action,
+        // cascadeOrigin is null - capture THIS hop's own pre-transition
+        // status/comment as the cascade's origin. Recursive calls made by
+        // WorkflowAutomationService.AdvanceAsync pass the same origin back
+        // in, so it survives unchanged through however many automatic hops
+        // follow (see WorkflowCascadeOrigin).
+        var origin = cascadeOrigin ?? new WorkflowCascadeOrigin(oldStatus, comments);
+
         // System-triggered continuations (spec 7.3's "Auto | System" steps —
         // ai evaluation chain, Excel-on-done) live in a dedicated service
         // rather than inline here, so this method stays focused on the
         // state-machine mechanics. See WorkflowAutomationService for why it
         // takes `this` as a parameter instead of being constructor-injected.
+        // That same service also owns notifying the requestor/next-role
+        // once a cascade settles, using `origin` to report the true
+        // before/after rather than an intermediate hop's own.
         return await _automation.RunPostTransitionHooksAsync(
-            this, request, targetStage, actingUserId, actingUserRole, result);
+            this, request, targetStage, actingUserId, actingUserRole, result, origin);
     }
 }
